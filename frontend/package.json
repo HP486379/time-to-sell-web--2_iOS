@@ -3,12 +3,11 @@
   "version": "0.0.1",
   "private": true,
   "type": "module",
-  "scripts": {
-    "dev": "vite",
-    "build": "tsc && vite build",
-    "preview": "vite preview",
-    "lint": "echo 'linting placeholder'"
-  },
+  ""scripts": {
+  "dev": "vite",
+  "build": "vite build",
+  "typecheck": "tsc --noEmit"
+},
   "dependencies": {
     "@emotion/react": "^11.11.1",
     "@emotion/styled": "^11.11.0",
