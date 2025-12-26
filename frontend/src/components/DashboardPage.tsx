@@ -95,19 +95,14 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
   const [positionDialogOpen, setPositionDialogOpen] = useState(false)
   const [priceSeriesMap, setPriceSeriesMap] = useState<Partial<Record<IndexType, PricePoint[]>>>({})
 
-  const tooltipTexts = useMemo(() => buildTooltips(indexType, lastRequest.score_ma), [indexType, lastRequest.score_ma])
+  const tooltipTexts = useMemo(
+    () => buildTooltips(indexType, lastRequest.score_ma),
+    [indexType, lastRequest.score_ma],
+  )
 
   const response = responses[indexType] ?? null
   const totalScore = response?.scores?.total
   const priceSeries = priceSeriesMap[indexType] ?? []
-
-  const getAvatarLevel = (score?: number): Decision => {
-    if (score === undefined || Number.isNaN(score)) return 'HOLD_OR_BUY'
-    if (score >= 80) return 'TAKE_PROFIT'
-    if (score >= 60) return 'TAKE_PROFIT'
-    if (score >= 40) return 'WAIT'
-    return 'HOLD_OR_BUY'
-  }
 
   const fetchEvaluation = async (
     targetIndex: IndexType,
@@ -119,7 +114,8 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
       if (markPrimary) setError(null)
       const res = await apiClient.post<EvaluateResponse>('/api/evaluate', body)
       setResponses((prev) => ({ ...prev, [targetIndex]: res.data }))
-      if (targetIndex === indexType && payload) setLastRequest((prev) => ({ ...prev, ...payload, index_type: targetIndex }))
+      if (targetIndex === indexType && payload)
+        setLastRequest((prev) => ({ ...prev, ...payload, index_type: targetIndex }))
       if (markPrimary) setLastUpdated(new Date())
     } catch (e: any) {
       if (markPrimary) {
@@ -597,7 +593,7 @@ function resolveStartDate(series: PricePoint[], startOption: StartOption, custom
       if (parsed.isValid()) return parsed
       return dayjs(series[0].date)
     }
-    case 'max':
+    case 'max'
     default:
       return dayjs(series[0].date)
   }
