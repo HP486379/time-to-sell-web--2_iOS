@@ -17,6 +17,31 @@ from services.nav_service import FundNavService
 from services.backtest_service import BacktestService
 
 
+# ======================
+# FastAPI & CORS Config
+# ======================
+
+app = FastAPI(title="S&P500 Timing API")
+
+# 本番用 CORS（Vercel の URL を後で追加）
+# 例: https://time-to-sell-web--2.vercel.app
+ALLOWED_ORIGINS = [
+    "*",   # 初期は全許可、必要になったら Vercel ドメインに絞る
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=ALLOWED_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+# ======================
+# Models & Enums
+# ======================
+
 class IndexType(str, Enum):
     SP500 = "SP500"
     SP500_JPY = "sp500_jpy"
@@ -28,10 +53,10 @@ class IndexType(str, Enum):
 
 
 class PositionRequest(BaseModel):
-    total_quantity: float = Field(..., description="Total units held")
-    avg_cost: float = Field(..., description="Average acquisition price")
-    index_type: IndexType = Field(IndexType.SP500, description="Target index type")
-    score_ma: int = Field(200, description="Moving average window for score calculation")
+    total_quantity: float
+    avg_cost: float
+    index_type: IndexType = IndexType.SP500
+    score_ma: int = Field(200)
 
 
 class PricePoint(BaseModel):
@@ -74,7 +99,7 @@ class BacktestRequest(BaseModel):
     buy_threshold: float = 40.0
     sell_threshold: float = 80.0
     index_type: IndexType = IndexType.SP500
-    score_ma: int = Field(200, description="Moving average window for score calculation")
+    score_ma: int = Field(200)
 
 
 class Trade(BaseModel):
@@ -101,18 +126,11 @@ class BacktestResponse(BaseModel):
     buy_hold_history: List[PortfolioPoint]
 
 
+# ======================
+# Services
+# ======================
+
 logger = logging.getLogger(__name__)
-
-app = FastAPI(title="S&P500 Timing API")
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
 
 market_service = SP500MarketService()
 macro_service = MacroDataService()
@@ -126,15 +144,28 @@ JST = timezone(timedelta(hours=9))
 def to_jst_iso(value: date) -> str:
     return datetime.combine(value, time.min, tzinfo=JST).isoformat()
 
+
+# ======================
+# Cache
+# ======================
+
 _cache_ttl = timedelta(seconds=60)
 _cached_snapshot = {}
 _cached_at: dict[str, datetime] = {}
 
 
+# ======================
+# Health Check
+# ======================
+
 @app.get("/api/health")
 def health():
     return {"status": "ok"}
 
+
+# ======================
+# NAV Endpoints
+# ======================
 
 @app.get("/api/nav/sp500-synthetic", response_model=SyntheticNavResponse)
 def get_synthetic_nav():
@@ -154,10 +185,15 @@ def get_fund_nav():
     }
 
 
+# ======================
+# Snapshot Builder
+# ======================
+
 def _build_snapshot(index_type: IndexType = IndexType.SP500):
     price_history = market_service.get_price_history(index_type=index_type.value)
     market_service.get_current_price(price_history, index_type=index_type.value)
     market_service.get_usd_jpy()
+
     if index_type == IndexType.SP500:
         fund_nav = nav_service.get_official_nav() or nav_service.get_synthetic_nav()
         current_price = fund_nav["navJpy"]
@@ -171,30 +207,10 @@ def _build_snapshot(index_type: IndexType = IndexType.SP500):
     )
 
     events = event_service.get_events()
-    event_log = [
-        {
-            "name": e.get("name"),
-            "source": "local heuristic calendar (FOMC=3rd Wed, CPI=around 10th, NFP=1st Fri)",
-            "raw_date": str(e.get("date")),
-            "parsed_iso": to_jst_iso(e.get("date")),
-            "display_jst": f"{to_jst_iso(e.get('date'))} (JST)",
-        }
-        for e in events
-    ]
-    logger.info("[EVENT TRACE] %s", event_log)
     event_adjustment, event_details = calculate_event_adjustment(date.today(), events)
 
     total_score = calculate_total_score(technical_score, macro_score, event_adjustment)
     label = get_label(total_score)
-
-    effective_event = event_details.get("effective_event")
-    iso_effective_event = None
-    if effective_event:
-        iso_effective_event = {
-            **effective_event,
-            "date": to_jst_iso(effective_event["date"]),
-            "source": "local heuristic calendar",
-        }
 
     snapshot = {
         "current_price": current_price,
@@ -207,20 +223,7 @@ def _build_snapshot(index_type: IndexType = IndexType.SP500):
         },
         "technical_details": technical_details,
         "macro_details": macro_details,
-        "event_details": {
-            "E_adj": event_adjustment,
-            "R_max": event_details.get("R_max"),
-            "effective_event": iso_effective_event,
-            "events": [
-                {
-                    **e,
-                    "date": to_jst_iso(e.get("date")),
-                    "source": "local heuristic calendar",
-                    "timezone": "Asia/Tokyo",
-                }
-                for e in events
-            ],
-        },
+        "event_details": event_details,
         "price_history": price_history,
         "price_series": market_service.build_price_series_with_ma(price_history),
     }
@@ -228,62 +231,67 @@ def _build_snapshot(index_type: IndexType = IndexType.SP500):
     return snapshot
 
 
+# ======================
+# Price History Endpoints
+# ======================
+
 @app.get("/api/sp500/price-history", response_model=List[PricePoint])
-def get_sp500_price_history():
-    snapshot = get_cached_snapshot(index_type=IndexType.SP500)
-    return snapshot["price_series"]
+def get_sp500_history():
+    return get_cached_snapshot(IndexType.SP500)["price_series"]
 
 
 @app.get("/api/topix/price-history", response_model=List[PricePoint])
-def get_topix_price_history():
-    snapshot = get_cached_snapshot(index_type=IndexType.TOPIX)
-    return snapshot["price_series"]
+def get_topix_history():
+    return get_cached_snapshot(IndexType.TOPIX)["price_series"]
 
 
 @app.get("/api/nikkei/price-history", response_model=List[PricePoint])
-def get_nikkei_price_history():
-    snapshot = get_cached_snapshot(index_type=IndexType.NIKKEI)
-    return snapshot["price_series"]
+def get_nikkei_history():
+    return get_cached_snapshot(IndexType.NIKKEI)["price_series"]
 
 
 @app.get("/api/nifty50/price-history", response_model=List[PricePoint])
-def get_nifty_price_history():
-    snapshot = get_cached_snapshot(index_type=IndexType.NIFTY50)
-    return snapshot["price_series"]
+def get_nifty_history():
+    return get_cached_snapshot(IndexType.NIFTY50)["price_series"]
 
 
 @app.get("/api/orukan/price-history", response_model=List[PricePoint])
-def get_orukan_price_history():
-    snapshot = get_cached_snapshot(index_type=IndexType.ORUKAN)
-    return snapshot["price_series"]
+def get_orukan_history():
+    return get_cached_snapshot(IndexType.ORUKAN)["price_series"]
 
 
 @app.get("/api/orukan-jpy/price-history", response_model=List[PricePoint])
-def get_orukan_jpy_price_history():
-    snapshot = get_cached_snapshot(index_type=IndexType.ORUKAN_JPY)
-    return snapshot["price_series"]
+def get_orukan_jpy_history():
+    return get_cached_snapshot(IndexType.ORUKAN_JPY)["price_series"]
 
 
 @app.get("/api/sp500-jpy/price-history", response_model=List[PricePoint])
-def get_sp500_jpy_price_history():
-    snapshot = get_cached_snapshot(index_type=IndexType.SP500_JPY)
-    return snapshot["price_series"]
+def get_sp500_jpy_history():
+    return get_cached_snapshot(IndexType.SP500_JPY)["price_series"]
 
+
+# ======================
+# Cache Handler
+# ======================
 
 def get_cached_snapshot(index_type: IndexType = IndexType.SP500):
-    global _cached_snapshot, _cached_at
     now = datetime.utcnow()
-    cache_key = index_type.value
-    if cache_key in _cached_snapshot and cache_key in _cached_at and now - _cached_at[cache_key] < _cache_ttl:
-        return _cached_snapshot[cache_key]
+    key = index_type.value
 
-    _cached_snapshot[cache_key] = _build_snapshot(index_type=index_type)
-    _cached_at[cache_key] = now
-    return _cached_snapshot[cache_key]
+    if key in _cached_snapshot and now - _cached_at.get(key, datetime.min) < _cache_ttl:
+        return _cached_snapshot[key]
 
+    _cached_snapshot[key] = _build_snapshot(index_type)
+    _cached_at[key] = now
+    return _cached_snapshot[key]
+
+
+# ======================
+# Evaluate Endpoints
+# ======================
 
 def _evaluate(position: PositionRequest):
-    snapshot = get_cached_snapshot(index_type=position.index_type)
+    snapshot = get_cached_snapshot(position.index_type)
     current_price = snapshot["current_price"]
 
     technical_score, technical_details = calculate_technical_score(
@@ -294,23 +302,20 @@ def _evaluate(position: PositionRequest):
     total_score = calculate_total_score(technical_score, macro_score, event_adjustment)
     label = get_label(total_score)
 
-    scores = {
-        "technical": technical_score,
-        "macro": macro_score,
-        "event_adjustment": event_adjustment,
-        "total": total_score,
-        "label": label,
-    }
-
     market_value = position.total_quantity * current_price
-    avg_cost_total = position.total_quantity * position.avg_cost
-    unrealized_pnl = market_value - avg_cost_total
+    unrealized_pnl = market_value - (position.total_quantity * position.avg_cost)
 
     return {
         "current_price": current_price,
         "market_value": round(market_value, 2),
         "unrealized_pnl": round(unrealized_pnl, 2),
-        "scores": scores,
+        "scores": {
+            "technical": technical_score,
+            "macro": macro_score,
+            "event_adjustment": event_adjustment,
+            "total": total_score,
+            "label": label,
+        },
         "technical_details": technical_details,
         "macro_details": snapshot["macro_details"],
         "event_details": snapshot["event_details"],
@@ -328,10 +333,14 @@ def evaluate(position: PositionRequest):
     return _evaluate(position)
 
 
+# ======================
+# Backtest Endpoint
+# ======================
+
 @app.post("/api/backtest", response_model=BacktestResponse)
 def backtest(payload: BacktestRequest):
     try:
-        result = backtest_service.run_backtest(
+        return backtest_service.run_backtest(
             payload.start_date,
             payload.end_date,
             payload.initial_cash,
@@ -340,19 +349,19 @@ def backtest(payload: BacktestRequest):
             payload.index_type.value,
             payload.score_ma,
         )
-        return result
-    except ValueError as exc:
-        logger.error("Backtest failed due to invalid input: %s", exc, exc_info=True)
-        raise HTTPException(status_code=400, detail=str(exc))
-    except Exception as exc:  # pragma: no cover - defensive
-        logger.error("Backtest failed unexpectedly", exc_info=True)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception:
         raise HTTPException(
             status_code=502,
-            detail="Backtest failed: external data unavailable (check network / API key / symbol).",
+            detail="Backtest failed: external data unavailable.",
         )
 
 
+# ======================
+# Standalone Run
+# ======================
+
 if __name__ == "__main__":
     import uvicorn
-
     uvicorn.run(app, host="0.0.0.0", port=8000)
