@@ -26,7 +26,7 @@ app = FastAPI(title="S&P500 Timing API")
 # 本番用 CORS（Vercel の URL を後で追加）
 # 例: https://time-to-sell-web--2.vercel.app
 ALLOWED_ORIGINS = [
-    "https://time-to-sell-web--2.vercel.app",
+    "https://time-to-sell-web-2.vercel.app",
     "http://localhost:5173",
     "http://127.0.0.1:5173",
 ]
