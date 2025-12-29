@@ -1,0 +1,7 @@
+[
+  { "name": "FOMC", "date": "2025-01-29", "importance": 5 },
+  { "name": "CPI", "date": "2025-02-12", "importance": 4 },
+  { "name": "Nonfarm Payrolls", "date": "2025-03-07", "importance": 3 },
+  { "name": "FOMC", "date": "2025-03-19", "importance": 5 },
+  { "name": "CPI", "date": "2025-04-10", "importance": 4 }
+]
