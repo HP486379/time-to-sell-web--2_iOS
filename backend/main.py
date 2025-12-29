@@ -198,24 +198,33 @@ def get_fund_nav():
 
 
 def _build_snapshot(index_type: IndexType = IndexType.SP500) -> Dict:
+    # 価格データ & 為替
     price_history = market_service.get_price_history(index_type=index_type.value)
     market_service.get_current_price(price_history, index_type=index_type.value)
     market_service.get_usd_jpy()
 
     if index_type == IndexType.SP500:
+        # S&P500 は投信 NAV ベースで評価
         fund_nav = nav_service.get_official_nav() or nav_service.get_synthetic_nav()
         current_price = fund_nav["navJpy"]
     else:
+        # それ以外は終値ベース
         current_price = price_history[-1][1]
 
+    # テクニカル
     technical_score, technical_details = calculate_technical_score(price_history)
+
+    # マクロ
     macro_data = macro_service.get_macro_series()
     macro_score, macro_details = calculate_macro_score(
         macro_data["r_10y"], macro_data["cpi"], macro_data["vix"]
     )
 
-        events = event_service.get_events()
-    event_adjustment, event_details_raw = calculate_event_adjustment(date.today(), events)
+    # イベント（手動 JSON + ヒューリスティック）
+    events = event_service.get_events()
+    event_adjustment, event_details_raw = calculate_event_adjustment(
+        date.today(), events
+    )
 
     # イベント詳細を「どんな型が来ても落ちない」ように dict + date 文字列へ正規化
     normalized_event_details: List[Dict] = []
@@ -243,6 +252,7 @@ def _build_snapshot(index_type: IndexType = IndexType.SP500) -> Dict:
 
     event_details = normalized_event_details
 
+    # トータルスコア
     total_score = calculate_total_score(technical_score, macro_score, event_adjustment)
     label = get_label(total_score)
 
