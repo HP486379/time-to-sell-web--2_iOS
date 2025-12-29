@@ -1,5 +1,6 @@
 from datetime import date, datetime, time, timedelta, timezone
 from typing import List, Optional
+from pathlib import Path
 import logging
 from enum import Enum
 from fastapi import FastAPI, HTTPException
@@ -78,20 +79,6 @@ class EvaluateResponse(BaseModel):
     price_series: List[PricePoint]
 
 
-class SyntheticNavResponse(BaseModel):
-    asOf: str
-    priceUsd: float
-    usdJpy: float
-    navJpy: float
-    source: str
-
-
-class FundNavResponse(BaseModel):
-    asOf: str
-    navJpy: float
-    source: str
-
-
 class BacktestRequest(BaseModel):
     start_date: date
     end_date: date
@@ -132,9 +119,11 @@ class BacktestResponse(BaseModel):
 
 logger = logging.getLogger(__name__)
 
+MANUAL_EVENTS_PATH = Path(__file__).parent / "data" / "us_events.json"
+
 market_service = SP500MarketService()
 macro_service = MacroDataService()
-event_service = EventService()
+event_service = EventService(manual_events_path=MANUAL_EVENTS_PATH)
 nav_service = FundNavService()
 backtest_service = BacktestService(market_service, macro_service, event_service)
 
@@ -144,6 +133,26 @@ JST = timezone(timedelta(hours=9))
 def to_jst_iso(value: date) -> str:
     return datetime.combine(value, time.min, tzinfo=JST).isoformat()
 
+
+def _serialize_event(event: dict) -> dict:
+    serialized = dict(event)
+    event_date = serialized.get("date")
+    if isinstance(event_date, date):
+        serialized["date"] = event_date.isoformat()
+    return serialized
+
+
+def _serialize_event_details(details: dict) -> dict:
+    if not details:
+        return details
+    serialized = dict(details)
+    effective_event = serialized.get("effective_event")
+    if isinstance(effective_event, dict):
+        serialized["effective_event"] = _serialize_event(effective_event)
+    events = serialized.get("events")
+    if isinstance(events, list):
+        serialized["events"] = [_serialize_event(event) for event in events if isinstance(event, dict)]
+    return serialized
 
 # ======================
 # Cache
@@ -167,12 +176,12 @@ def health():
 # NAV Endpoints
 # ======================
 
-@app.get("/api/nav/sp500-synthetic", response_model=SyntheticNavResponse)
+@app.get("/api/nav/sp500-synthetic")
 def get_synthetic_nav():
     return nav_service.get_synthetic_nav()
 
 
-@app.get("/api/nav/emaxis-slim-sp500", response_model=FundNavResponse)
+@app.get("/api/nav/emaxis-slim-sp500")
 def get_fund_nav():
     nav = nav_service.get_official_nav()
     if nav:
@@ -208,6 +217,7 @@ def _build_snapshot(index_type: IndexType = IndexType.SP500):
 
     events = event_service.get_events()
     event_adjustment, event_details = calculate_event_adjustment(date.today(), events)
+    event_details = _serialize_event_details(event_details)
 
     total_score = calculate_total_score(technical_score, macro_score, event_adjustment)
     label = get_label(total_score)
@@ -325,12 +335,20 @@ def _evaluate(position: PositionRequest):
 
 @app.post("/api/sp500/evaluate", response_model=EvaluateResponse)
 def evaluate_sp500(position: PositionRequest):
-    return _evaluate(position)
+    try:
+        return _evaluate(position)
+    except Exception:
+        logger.exception("Evaluation failed")
+        raise HTTPException(status_code=502, detail="Evaluation failed")
 
 
 @app.post("/api/evaluate", response_model=EvaluateResponse)
 def evaluate(position: PositionRequest):
-    return _evaluate(position)
+    try:
+        return _evaluate(position)
+    except Exception:
+        logger.exception("Evaluation failed")
+        raise HTTPException(status_code=502, detail="Evaluation failed")
 
 
 # ======================
