@@ -214,17 +214,33 @@ def _build_snapshot(index_type: IndexType = IndexType.SP500) -> Dict:
         macro_data["r_10y"], macro_data["cpi"], macro_data["vix"]
     )
 
-    events = event_service.get_events()
-    event_adjustment, event_details = calculate_event_adjustment(date.today(), events)
+        events = event_service.get_events()
+    event_adjustment, event_details_raw = calculate_event_adjustment(date.today(), events)
 
-    # イベント詳細の date を JSON シリアライズ可能な文字列に正規化
+    # イベント詳細を「どんな型が来ても落ちない」ように dict + date 文字列へ正規化
     normalized_event_details: List[Dict] = []
-    for ev in event_details:
-        ev_copy = dict(ev)
-        d = ev_copy.get("date")
+
+    for ev in event_details_raw:
+        # 1) すでに dict の場合
+        if isinstance(ev, dict):
+            ev_dict = ev.copy()
+        # 2) Pydantic モデルなど .dict() を持つ場合
+        elif hasattr(ev, "dict"):
+            ev_dict = ev.dict()
+        # 3) dataclass など __dict__ を持つオブジェクト
+        elif hasattr(ev, "__dict__"):
+            ev_dict = dict(ev.__dict__)
+        # 4) どうしても正体不明な場合は文字列として退避
+        else:
+            ev_dict = {"description": str(ev)}
+
+        # date フィールドを ISO 文字列に統一
+        d = ev_dict.get("date")
         if isinstance(d, (date, datetime)):
-            ev_copy["date"] = d.isoformat()
-        normalized_event_details.append(ev_copy)
+            ev_dict["date"] = d.isoformat()
+
+        normalized_event_details.append(ev_dict)
+
     event_details = normalized_event_details
 
     total_score = calculate_total_score(technical_score, macro_score, event_adjustment)
