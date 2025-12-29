@@ -1,5 +1,6 @@
 from datetime import date, datetime, time, timedelta, timezone
 from typing import List, Optional
+from pathlib import Path
 import logging
 from enum import Enum
 from fastapi import FastAPI, HTTPException
@@ -132,9 +133,11 @@ class BacktestResponse(BaseModel):
 
 logger = logging.getLogger(__name__)
 
+MANUAL_EVENTS_PATH = Path(__file__).parent / "data" / "us_events.json"
+
 market_service = SP500MarketService()
 macro_service = MacroDataService()
-event_service = EventService()
+event_service = EventService(manual_events_path=MANUAL_EVENTS_PATH)
 nav_service = FundNavService()
 backtest_service = BacktestService(market_service, macro_service, event_service)
 

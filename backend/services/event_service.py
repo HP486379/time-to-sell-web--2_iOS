@@ -1,28 +1,62 @@
+from __future__ import annotations
+
 from datetime import date, timedelta
-from typing import Dict, List
+import json
+import logging
+from pathlib import Path
+from typing import Dict, List, Optional
+
+logger = logging.getLogger(__name__)
 
 
 class EventService:
+    def __init__(self, manual_events_path: Optional[Path] = None) -> None:
+        self.manual_events_path = manual_events_path or (
+            Path(__file__).resolve().parent.parent / "data" / "us_events.json"
+        )
+        self.manual_events: List[Dict] = self._load_manual_events()
+
+    def _load_manual_events(self) -> List[Dict]:
+        if not self.manual_events_path.exists():
+            logger.warning("Manual events file not found: %s", self.manual_events_path)
+            return []
+        try:
+            raw = json.loads(self.manual_events_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            logger.exception("Failed to parse manual events JSON: %s", self.manual_events_path)
+            return []
+
+        events: List[Dict] = []
+        for item in raw:
+            try:
+                event_date = date.fromisoformat(item["date"])
+                events.append(
+                    {
+                        "name": item["name"],
+                        "date": event_date,
+                        "importance": int(item["importance"]),
+                    }
+                )
+            except (KeyError, ValueError, TypeError):
+                logger.warning("Invalid manual event entry skipped: %s", item)
+        return events
+
     def _compute_third_wednesday(self, target: date) -> date:
         first_day = target.replace(day=1)
         weekday = first_day.weekday()
-        # Wednesday is 2
         offset = (2 - weekday) % 7
-        third_wed = first_day + timedelta(days=offset + 14)
-        return third_wed
+        return first_day + timedelta(days=offset + 14)
 
     def _first_friday(self, target: date) -> date:
         first_day = target.replace(day=1)
         weekday = first_day.weekday()
-        offset = (4 - weekday) % 7  # Friday is 4
+        offset = (4 - weekday) % 7
         return first_day + timedelta(days=offset)
 
     def _cpi_release_day(self, target: date) -> date:
-        # Approximate: 10日をデフォルトとする（実運用ではAPI差し替え）
-        day = 10
-        return target.replace(day=day)
+        return target.replace(day=10)
 
-    def _monthly_events(self, today: date) -> List[Dict]:
+    def _monthly_events_fallback(self, today: date) -> List[Dict]:
         month_ref = today.replace(day=1)
         next_month = (month_ref.replace(day=28) + timedelta(days=4)).replace(day=1)
         candidates = [month_ref, next_month]
@@ -31,7 +65,7 @@ class EventService:
             events.extend(
                 [
                     {"name": "FOMC", "importance": 5, "date": self._compute_third_wednesday(month)},
-                    {"name": "CPI Release", "importance": 4, "date": self._cpi_release_day(month)},
+                    {"name": "CPI", "importance": 4, "date": self._cpi_release_day(month)},
                     {"name": "Nonfarm Payrolls", "importance": 3, "date": self._first_friday(month)},
                 ]
             )
@@ -39,12 +73,17 @@ class EventService:
 
     def get_events_for_date(self, target: date) -> List[Dict]:
         window_days = 30
-        events = self._monthly_events(target)
         windowed = [
             event
-            for event in events
+            for event in self.manual_events
             if -7 <= (event["date"] - target).days <= window_days
         ]
+        if not windowed:
+            windowed = [
+                event
+                for event in self._monthly_events_fallback(target)
+                if -7 <= (event["date"] - target).days <= window_days
+            ]
         return sorted(windowed, key=lambda e: e["date"])
 
     def get_events(self) -> List[Dict]:

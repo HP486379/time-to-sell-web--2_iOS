@@ -1,9 +1,11 @@
 import type { BacktestRequest, BacktestResult } from './types/apis'
 
-const API_BASE = '/api'
+const apiBase =
+  import.meta.env.VITE_API_BASE ||
+  (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:8000')
 
 export async function runBacktest(payload: BacktestRequest): Promise<BacktestResult> {
-  const res = await fetch(`${API_BASE}/backtest`, {
+  const res = await fetch(`${apiBase}/api/backtest`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
