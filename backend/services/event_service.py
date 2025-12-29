@@ -71,7 +71,17 @@ class EventService:
             )
         return events
 
+    # ======================
+    # 公開メソッド
+    # ======================
+
     def get_events_for_date(self, target: date) -> List[Dict]:
+        """
+        指定日 target の前後を対象に、重要イベント一覧を返す。
+
+        - まず手動イベント JSON から [-7日, +30日] に入るものを取得
+        - 1件もなければヒューリスティックで補完
+        """
         window_days = 30
         windowed = [
             event
@@ -87,4 +97,8 @@ class EventService:
         return sorted(windowed, key=lambda e: e["date"])
 
     def get_events(self) -> List[Dict]:
+        """
+        今日を基準にしたイベント一覧を返す。
+        （既存コードのインターフェース互換）
+        """
         return self.get_events_for_date(date.today())

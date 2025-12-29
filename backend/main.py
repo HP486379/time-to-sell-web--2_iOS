@@ -1,8 +1,10 @@
 from datetime import date, datetime, time, timedelta, timezone
+from enum import Enum
+from pathlib import Path
 from typing import List, Optional
 from pathlib import Path
 import logging
-from enum import Enum
+
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
@@ -18,17 +20,19 @@ from services.nav_service import FundNavService
 from services.backtest_service import BacktestService
 
 
+logger = logging.getLogger(__name__)
+
 # ======================
-# FastAPI & CORS Config
+# CORS
 # ======================
 
-app = FastAPI(title="S&P500 Timing API")
-
-# 本番用 CORS（Vercel の URL を後で追加）
-# 例: https://time-to-sell-web--2.vercel.app
 ALLOWED_ORIGINS = [
-    "*",   # 初期は全許可、必要になったら Vercel ドメインに絞る
+    "https://time-to-sell-web-2.vercel.app",  # Vercel 本番
+    "http://localhost:5173",                  # Vite dev
+    "http://127.0.0.1:5173",
 ]
+
+app = FastAPI(title="Time to Sell API")
 
 app.add_middleware(
     CORSMiddleware,
@@ -40,84 +44,77 @@ app.add_middleware(
 
 
 # ======================
-# Models & Enums
+# Enums / Schemas
 # ======================
 
 class IndexType(str, Enum):
     SP500 = "SP500"
-    SP500_JPY = "sp500_jpy"
     TOPIX = "TOPIX"
-    NIKKEI = "NIKKEI"
-    NIFTY50 = "NIFTY50"
-    ORUKAN = "ORUKAN"
-    ORUKAN_JPY = "orukan_jpy"
+    NASDAQ100 = "NASDAQ100"
+    NIKKEI225 = "NIKKEI225"
 
 
 class PositionRequest(BaseModel):
-    total_quantity: float
-    avg_cost: float
-    index_type: IndexType = IndexType.SP500
-    score_ma: int = Field(200)
+    index_type: IndexType = Field(description="対象インデックス")
+    score_ma: int = Field(50, description="スコア算出に使う移動平均（日数）")
+    as_of: Optional[date] = Field(
+        default=None,
+        description="評価基準日（省略時は最新）",
+    )
 
 
 class PricePoint(BaseModel):
-    date: str
+    date: date
     close: float
-    ma20: Optional[float]
-    ma60: Optional[float]
-    ma200: Optional[float]
+
+
+class ScoreBreakdown(BaseModel):
+    technical_score: float
+    macro_score: float
+    event_adjustment: float
+    total_score: float
+    label: str
 
 
 class EvaluateResponse(BaseModel):
+    index_type: IndexType
+    as_of: date
     current_price: float
-    market_value: float
-    unrealized_pnl: float
-    scores: dict
-    technical_details: dict
-    macro_details: dict
+    scores: ScoreBreakdown
+    price_history: List[PricePoint]
     event_details: dict
     price_series: List[PricePoint]
 
 
 class BacktestRequest(BaseModel):
+    index_type: IndexType
     start_date: date
     end_date: date
-    initial_cash: float
-    buy_threshold: float = 40.0
-    sell_threshold: float = 80.0
-    index_type: IndexType = IndexType.SP500
-    score_ma: int = Field(200)
+    initial_capital: float
+    sell_threshold: float
+    buy_threshold: float
+    score_ma: int
 
 
-class Trade(BaseModel):
-    action: str
-    date: str
-    quantity: int
-    price: float
-
-
-class PortfolioPoint(BaseModel):
-    date: str
-    value: float
+class BacktestSummary(BaseModel):
+    final_equity: float
+    hold_equity: float
+    total_return: float
+    max_drawdown: float
+    trade_count: int
 
 
 class BacktestResponse(BaseModel):
-    final_value: float
-    buy_and_hold_final: float
-    total_return_pct: float
-    cagr_pct: float
-    max_drawdown_pct: float
-    trade_count: int
-    trades: List[Trade]
-    portfolio_history: List[PortfolioPoint]
-    buy_hold_history: List[PortfolioPoint]
+    summary: BacktestSummary
+    equity_curve: List[PricePoint]
 
 
 # ======================
 # Services
 # ======================
 
-logger = logging.getLogger(__name__)
+# 手動イベント JSON のパス（例: backend/data/us_events.json）
+MANUAL_EVENTS_PATH = Path(__file__).parent / "data" / "us_events.json"
 
 MANUAL_EVENTS_PATH = Path(__file__).parent / "data" / "us_events.json"
 
@@ -164,13 +161,21 @@ _cached_at: dict[str, datetime] = {}
 
 
 # ======================
-# Health Check
+# Helper
 # ======================
 
-@app.get("/api/health")
-def health():
-    return {"status": "ok"}
-
+def get_cached_snapshot(index_type: IndexType) -> dict:
+    """
+    インデックスごとのスナップショットを返すヘルパー。
+    ※ 実装はプロジェクトの既存ロジックに合わせて、
+      SP500MarketService / MacroDataService / EventService を使う。
+    """
+    # ここは既存 main.py と同等の実装で OK。
+    # 必要に応じてキャッシュ（lru_cache 等）を入れてもよい。
+    price_history = market_service.get_price_history(index_type.value)
+    macro_snapshot = macro_service.get_macro_snapshot()
+    today = date.today()
+    events = event_service.get_events_for_date(today)
 
 # ======================
 # NAV Endpoints
@@ -214,6 +219,8 @@ def _build_snapshot(index_type: IndexType = IndexType.SP500):
     macro_score, macro_details = calculate_macro_score(
         macro_data["r_10y"], macro_data["cpi"], macro_data["vix"]
     )
+    macro_score = calculate_macro_score(macro_snapshot)
+    event_adjustment, event_details = calculate_event_adjustment(events)
 
     events = event_service.get_events()
     event_adjustment, event_details = calculate_event_adjustment(date.today(), events)
@@ -222,8 +229,12 @@ def _build_snapshot(index_type: IndexType = IndexType.SP500):
     total_score = calculate_total_score(technical_score, macro_score, event_adjustment)
     label = get_label(total_score)
 
-    snapshot = {
+    current_price = price_history[-1]["close"] if price_history else 0.0
+
+    return {
+        "as_of": today,
         "current_price": current_price,
+        "price_history": price_history,
         "scores": {
             "technical": technical_score,
             "macro": macro_score,
@@ -232,104 +243,111 @@ def _build_snapshot(index_type: IndexType = IndexType.SP500):
             "label": label,
         },
         "technical_details": technical_details,
-        "macro_details": macro_details,
         "event_details": event_details,
-        "price_history": price_history,
-        "price_series": market_service.build_price_series_with_ma(price_history),
     }
-
-    return snapshot
-
-
-# ======================
-# Price History Endpoints
-# ======================
-
-@app.get("/api/sp500/price-history", response_model=List[PricePoint])
-def get_sp500_history():
-    return get_cached_snapshot(IndexType.SP500)["price_series"]
-
-
-@app.get("/api/topix/price-history", response_model=List[PricePoint])
-def get_topix_history():
-    return get_cached_snapshot(IndexType.TOPIX)["price_series"]
-
-
-@app.get("/api/nikkei/price-history", response_model=List[PricePoint])
-def get_nikkei_history():
-    return get_cached_snapshot(IndexType.NIKKEI)["price_series"]
-
-
-@app.get("/api/nifty50/price-history", response_model=List[PricePoint])
-def get_nifty_history():
-    return get_cached_snapshot(IndexType.NIFTY50)["price_series"]
-
-
-@app.get("/api/orukan/price-history", response_model=List[PricePoint])
-def get_orukan_history():
-    return get_cached_snapshot(IndexType.ORUKAN)["price_series"]
-
-
-@app.get("/api/orukan-jpy/price-history", response_model=List[PricePoint])
-def get_orukan_jpy_history():
-    return get_cached_snapshot(IndexType.ORUKAN_JPY)["price_series"]
-
-
-@app.get("/api/sp500-jpy/price-history", response_model=List[PricePoint])
-def get_sp500_jpy_history():
-    return get_cached_snapshot(IndexType.SP500_JPY)["price_series"]
-
-
-# ======================
-# Cache Handler
-# ======================
-
-def get_cached_snapshot(index_type: IndexType = IndexType.SP500):
-    now = datetime.utcnow()
-    key = index_type.value
-
-    if key in _cached_snapshot and now - _cached_at.get(key, datetime.min) < _cache_ttl:
-        return _cached_snapshot[key]
-
-    _cached_snapshot[key] = _build_snapshot(index_type)
-    _cached_at[key] = now
-    return _cached_snapshot[key]
 
 
 # ======================
 # Evaluate Endpoints
 # ======================
 
-def _evaluate(position: PositionRequest):
+def _evaluate(position: PositionRequest) -> EvaluateResponse:
     snapshot = get_cached_snapshot(position.index_type)
     current_price = snapshot["current_price"]
 
-    technical_score, technical_details = calculate_technical_score(
-        snapshot["price_history"], base_window=position.score_ma
-    )
+    technical_score = snapshot["scores"]["technical"]
     macro_score = snapshot["scores"]["macro"]
     event_adjustment = snapshot["scores"]["event_adjustment"]
-    total_score = calculate_total_score(technical_score, macro_score, event_adjustment)
-    label = get_label(total_score)
+    total_score = snapshot["scores"]["total"]
+    label = snapshot["scores"]["label"]
 
-    market_value = position.total_quantity * current_price
-    unrealized_pnl = market_value - (position.total_quantity * position.avg_cost)
+    breakdown = ScoreBreakdown(
+        technical_score=technical_score,
+        macro_score=macro_score,
+        event_adjustment=event_adjustment,
+        total_score=total_score,
+        label=label,
+    )
 
+    price_points = [
+        PricePoint(date=p["date"], close=p["close"])
+        for p in snapshot["price_history"]
+    ]
+
+    response = EvaluateResponse(
+        index_type=position.index_type,
+        as_of=snapshot["as_of"],
+        current_price=current_price,
+        scores=breakdown,
+        price_history=price_points,
+        event_details=snapshot["event_details"],
+    )
+    return response
+
+
+@app.post("/api/evaluate", response_model=EvaluateResponse)
+def evaluate_index(position: PositionRequest):
+    try:
+        return _evaluate(position)
+    except Exception:
+        logger.exception("Failed to evaluate index")
+        raise HTTPException(
+            status_code=502,
+            detail="Evaluation failed: external data unavailable.",
+        )
+
+
+@app.post("/api/sp500/evaluate", response_model=EvaluateResponse)
+def evaluate_sp500(position: Optional[PositionRequest] = None):
+    # フロント互換のため SP500 固定エンドポイントを残す
+    payload = position or PositionRequest(index_type=IndexType.SP500, score_ma=50)
+    payload.index_type = IndexType.SP500
+    try:
+        return _evaluate(payload)
+    except Exception:
+        logger.exception("Failed to evaluate SP500")
+        raise HTTPException(
+            status_code=502,
+            detail="Evaluation for SP500 failed.",
+        )
+
+
+# ======================
+# Backtest Endpoints
+# ======================
+
+@app.post("/api/backtest", response_model=BacktestResponse)
+def run_backtest(request: BacktestRequest):
+    try:
+        result = backtest_service.run_backtest(request)
+        return result
+    except Exception:
+        logger.exception("Backtest failed")
+        raise HTTPException(
+            status_code=502,
+            detail="Backtest failed: external data unavailable.",
+        )
+
+
+# ======================
+# NAV Endpoints
+# ======================
+
+@app.get("/api/nav/sp500-synthetic")
+def get_synthetic_nav():
+    return nav_service.get_synthetic_nav()
+
+
+@app.get("/api/nav/emaxis-slim-sp500")
+def get_fund_nav():
+    nav = nav_service.get_official_nav()
+    if nav:
+        return nav
+    synthetic = nav_service.get_synthetic_nav()
     return {
-        "current_price": current_price,
-        "market_value": round(market_value, 2),
-        "unrealized_pnl": round(unrealized_pnl, 2),
-        "scores": {
-            "technical": technical_score,
-            "macro": macro_score,
-            "event_adjustment": event_adjustment,
-            "total": total_score,
-            "label": label,
-        },
-        "technical_details": technical_details,
-        "macro_details": snapshot["macro_details"],
-        "event_details": snapshot["event_details"],
-        "price_series": snapshot["price_series"],
+        "asOf": synthetic["asOf"],
+        "navJpy": synthetic["navJpy"],
+        "source": "synthetic",
     }
 
 
@@ -352,28 +370,12 @@ def evaluate(position: PositionRequest):
 
 
 # ======================
-# Backtest Endpoint
+# Health
 # ======================
 
-@app.post("/api/backtest", response_model=BacktestResponse)
-def backtest(payload: BacktestRequest):
-    try:
-        return backtest_service.run_backtest(
-            payload.start_date,
-            payload.end_date,
-            payload.initial_cash,
-            payload.buy_threshold,
-            payload.sell_threshold,
-            payload.index_type.value,
-            payload.score_ma,
-        )
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception:
-        raise HTTPException(
-            status_code=502,
-            detail="Backtest failed: external data unavailable.",
-        )
+@app.get("/api/health")
+def health_check():
+    return {"status": "ok"}
 
 
 # ======================
@@ -382,4 +384,5 @@ def backtest(payload: BacktestRequest):
 
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run(app, host="0.0.0.0", port=8000)
