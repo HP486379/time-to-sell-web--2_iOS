@@ -393,26 +393,24 @@ def evaluate(position: PositionRequest):
 # ======================
 
 
-@app.post("/api/backtest", response_model=BacktestResponse)
+@app.post("/api/backtest")
 def backtest(payload: BacktestRequest):
-    try:
-        return backtest_service.run_backtest(
-            payload.start_date,
-            payload.end_date,
-            payload.initial_cash,
-            payload.buy_threshold,
-            payload.sell_threshold,
-            payload.index_type.value,
-            payload.score_ma,
-        )
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception:
-        logger.exception("Backtest failed", exc_info=True)
-        raise HTTPException(
-            status_code=502,
-            detail="Backtest failed: external data unavailable.",
-        )
+    """
+    デバッグ用：まずは CORS ＆ルーティングが正しいかだけ確認する簡易版。
+    本番ロジックは一旦コメントアウトしている。
+    """
+    # ここではバックテストの本当の計算はせず、
+    # フロントから受け取った値をそのまま返すだけにしておく。
+    return {
+        "summary": {
+            "final_equity": float(payload.initial_cash),
+            "hold_equity": float(payload.initial_cash),
+            "total_return": 0.0,
+            "max_drawdown": 0.0,
+            "trade_count": 0,
+        },
+        "equity_curve": [],
+    }
 
 
 # ======================
