@@ -78,27 +78,10 @@ class PricePoint(BaseModel):
 
 class EvaluateResponse(BaseModel):
     current_price: float
-    market_value: float
-    unrealized_pnl: float
-    scores: Dict
-    technical_details: Dict
-    macro_details: Dict
-    event_details: List[Dict]
+    scores: ScoreBreakdown
+    price_history: List[PricePoint]
+    event_details: dict
     price_series: List[PricePoint]
-
-
-class SyntheticNavResponse(BaseModel):
-    asOf: str
-    priceUsd: float
-    usdJpy: float
-    navJpy: float
-    source: str
-
-
-class FundNavResponse(BaseModel):
-    asOf: str
-    navJpy: float
-    source: str
 
 
 class BacktestRequest(BaseModel):
@@ -152,6 +135,41 @@ event_service = EventService(manual_events=manual_events)
 nav_service = FundNavService()
 backtest_service = BacktestService(market_service, macro_service, event_service)
 
+JST = timezone(timedelta(hours=9))
+
+
+def to_jst_iso(value: date) -> str:
+    return datetime.combine(value, time.min, tzinfo=JST).isoformat()
+
+
+def _serialize_event(event: dict) -> dict:
+    serialized = dict(event)
+    event_date = serialized.get("date")
+    if isinstance(event_date, date):
+        serialized["date"] = event_date.isoformat()
+    return serialized
+
+
+def _serialize_event_details(details: dict) -> dict:
+    if not details:
+        return details
+    serialized = dict(details)
+    effective_event = serialized.get("effective_event")
+    if isinstance(effective_event, dict):
+        serialized["effective_event"] = _serialize_event(effective_event)
+    events = serialized.get("events")
+    if isinstance(events, list):
+        serialized["events"] = [_serialize_event(event) for event in events if isinstance(event, dict)]
+    return serialized
+
+# ======================
+# Cache
+# ======================
+
+_cache_ttl = timedelta(seconds=60)
+_cached_snapshot = {}
+_cached_at: dict[str, datetime] = {}
+
 
 # ======================
 # Time & Helpers
@@ -170,34 +188,9 @@ def get_cached_snapshot(index_type: IndexType) -> dict:
     today = date.today()
     events = event_service.get_events_for_date(today)
 
-
-def to_jst_iso(value: date) -> str:
-    return datetime.combine(value, time.min, tzinfo=JST).isoformat()
-
-
-# ======================
-# Cache
-# ======================
-
-_cache_ttl = timedelta(seconds=60)
-_cached_snapshot: Dict[str, Dict] = {}
-_cached_at: Dict[str, datetime] = {}
-
-
-# ======================
-# Health Check
-# ======================
-
-
-@app.get("/api/health")
-def health():
-    return {"status": "ok"}
-
-
 # ======================
 # NAV Endpoints
 # ======================
-
 
 @app.get("/api/nav/sp500-synthetic")
 def get_synthetic_nav():
@@ -221,35 +214,28 @@ def get_fund_nav():
 # Snapshot Builder
 # ======================
 
-
-def _build_snapshot(index_type: IndexType = IndexType.SP500) -> Dict:
-    # 価格データ & 為替
+def _build_snapshot(index_type: IndexType = IndexType.SP500):
     price_history = market_service.get_price_history(index_type=index_type.value)
     market_service.get_current_price(price_history, index_type=index_type.value)
     market_service.get_usd_jpy()
 
     if index_type == IndexType.SP500:
-        # S&P500 は投信 NAV ベースで評価
         fund_nav = nav_service.get_official_nav() or nav_service.get_synthetic_nav()
         current_price = fund_nav["navJpy"]
     else:
-        # それ以外は終値ベース
         current_price = price_history[-1][1]
 
-    # テクニカル
     technical_score, technical_details = calculate_technical_score(price_history)
-
-    # マクロ
     macro_data = macro_service.get_macro_series()
     macro_score, macro_details = calculate_macro_score(
         macro_data["r_10y"], macro_data["cpi"], macro_data["vix"]
     )
-    macro_score, macro_details = calculate_macro_score(
-        macro_snapshot["r_10y"],
-        macro_snapshot["cpi"],
-        macro_snapshot["vix"],
-    )
-    event_adjustment, event_details = calculate_event_adjustment(today, events)
+    macro_score = calculate_macro_score(macro_snapshot)
+    event_adjustment, event_details = calculate_event_adjustment(events)
+
+    events = event_service.get_events()
+    event_adjustment, event_details = calculate_event_adjustment(date.today(), events)
+    event_details = _serialize_event_details(event_details)
 
     total_score = calculate_total_score(technical_score, macro_score, event_adjustment)
     label = get_label(total_score)
@@ -427,7 +413,7 @@ def evaluate_sp500(position: PositionRequest):
     try:
         return _evaluate(position)
     except Exception:
-        logger.exception("Evaluation failed for /api/sp500/evaluate", exc_info=True)
+        logger.exception("Evaluation failed")
         raise HTTPException(status_code=502, detail="Evaluation failed")
 
 
@@ -436,7 +422,7 @@ def evaluate(position: PositionRequest):
     try:
         return _evaluate(position)
     except Exception:
-        logger.exception("Evaluation failed for /api/evaluate", exc_info=True)
+        logger.exception("Evaluation failed")
         raise HTTPException(status_code=502, detail="Evaluation failed")
 
 
