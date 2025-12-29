@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import List, Optional
+from pathlib import Path
 import logging
 from enum import Enum
 
@@ -134,6 +135,11 @@ class BacktestResponse(BaseModel):
 # ======================
 # Services
 # ======================
+
+# 手動イベント JSON のパス（例: backend/data/us_events.json）
+MANUAL_EVENTS_PATH = Path(__file__).parent / "data" / "us_events.json"
+
+MANUAL_EVENTS_PATH = Path(__file__).parent / "data" / "us_events.json"
 
 market_service = SP500MarketService()
 macro_service = MacroDataService()
