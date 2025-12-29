@@ -108,8 +108,17 @@ class BacktestResponse(BaseModel):
 
 
 class SyntheticNavResponse(BaseModel):
-    dates: List[date]
-    values: List[float]
+    asOf: str
+    priceUsd: float
+    usdJpy: float
+    navJpy: float
+    source: str
+
+
+class FundNavResponse(BaseModel):
+    asOf: str
+    navJpy: float
+    source: str
 
 
 class FundNavResponse(BaseModel):
