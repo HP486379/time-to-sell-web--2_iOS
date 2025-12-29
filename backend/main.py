@@ -118,9 +118,17 @@ class BacktestSummary(BaseModel):
     trade_count: int
 
 
+class BacktestPoint(BaseModel):
+    date: date
+    close: float
+    ma20: Optional[float] = None
+    ma60: Optional[float] = None
+    ma200: Optional[float] = None
+
+
 class BacktestResponse(BaseModel):
     summary: BacktestSummary
-    equity_curve: List[PricePoint]
+    equity_curve: List[BacktestPoint]
 
 
 # ======================
@@ -143,7 +151,18 @@ backtest_service = BacktestService(market_service, macro_service, event_service)
 # Time & Helpers
 # ======================
 
-JST = timezone(timedelta(hours=9))
+def get_cached_snapshot(index_type: IndexType) -> dict:
+    """
+    インデックスごとのスナップショットを返すヘルパー。
+    ※ 実装はプロジェクトの既存ロジックに合わせて、
+      SP500MarketService / MacroDataService / EventService を使う。
+    """
+    # ここは既存 main.py と同等の実装で OK。
+    # 必要に応じてキャッシュ（lru_cache 等）を入れてもよい。
+    price_history = market_service.get_price_history(index_type.value)
+    macro_snapshot = macro_service.get_macro_series()
+    today = date.today()
+    events = event_service.get_events_for_date(today)
 
 
 def to_jst_iso(value: date) -> str:
@@ -219,45 +238,24 @@ def _build_snapshot(index_type: IndexType = IndexType.SP500) -> Dict:
     macro_score, macro_details = calculate_macro_score(
         macro_data["r_10y"], macro_data["cpi"], macro_data["vix"]
     )
-
-    # イベント（手動 JSON + ヒューリスティック）
-    events = event_service.get_events()
-    event_adjustment, event_details_raw = calculate_event_adjustment(
-        date.today(), events
+    macro_score, macro_details = calculate_macro_score(
+        macro_snapshot["r_10y"],
+        macro_snapshot["cpi"],
+        macro_snapshot["vix"],
     )
+    event_adjustment, event_details = calculate_event_adjustment(today, events)
 
-    # イベント詳細を「どんな型が来ても落ちない」ように dict + date 文字列へ正規化
-    normalized_event_details: List[Dict] = []
-
-    for ev in event_details_raw:
-        # 1) すでに dict の場合
-        if isinstance(ev, dict):
-            ev_dict = ev.copy()
-        # 2) Pydantic モデルなど .dict() を持つ場合
-        elif hasattr(ev, "dict"):
-            ev_dict = ev.dict()
-        # 3) dataclass など __dict__ を持つオブジェクト
-        elif hasattr(ev, "__dict__"):
-            ev_dict = dict(ev.__dict__)
-        # 4) どうしても正体不明な場合は文字列として退避
-        else:
-            ev_dict = {"description": str(ev)}
-
-        # date フィールドを ISO 文字列に統一
-        d = ev_dict.get("date")
-        if isinstance(d, (date, datetime)):
-            ev_dict["date"] = d.isoformat()
-
-        normalized_event_details.append(ev_dict)
-
-    event_details = normalized_event_details
-
-    # トータルスコア
     total_score = calculate_total_score(technical_score, macro_score, event_adjustment)
     label = get_label(total_score)
 
+    current_price = price_history[-1][1] if price_history else 0.0
+    price_history_points = [
+        {"date": price_date, "close": close} for price_date, close in price_history
+    ]
+
     snapshot = {
         "current_price": current_price,
+        "price_history": price_history_points,
         "scores": {
             "technical": technical_score,
             "macro": macro_score,
@@ -319,17 +317,65 @@ def get_orukan_jpy_history():
 # Snapshot Cache
 # ======================
 
+def _build_equity_curve(price_history: List[tuple]) -> List[BacktestPoint]:
+    closes = [close for _, close in price_history]
 
-def get_cached_snapshot(index_type: IndexType = IndexType.SP500) -> Dict:
-    now = datetime.utcnow()
-    key = index_type.value
+    def moving_average(values: List[float], window: int) -> List[Optional[float]]:
+        averaged: List[Optional[float]] = []
+        for idx in range(len(values)):
+            if idx + 1 < window:
+                averaged.append(None)
+                continue
+            window_values = values[idx + 1 - window : idx + 1]
+            averaged.append(round(sum(window_values) / window, 2))
+        return averaged
 
-    if key in _cached_snapshot and now - _cached_at.get(key, datetime.min) < _cache_ttl:
-        return _cached_snapshot[key]
+    ma20 = moving_average(closes, 20)
+    ma60 = moving_average(closes, 60)
+    ma200 = moving_average(closes, 200)
 
-    _cached_snapshot[key] = _build_snapshot(index_type)
-    _cached_at[key] = now
-    return _cached_snapshot[key]
+    return [
+        BacktestPoint(
+            date=date.fromisoformat(date_str),
+            close=close,
+            ma20=ma20[idx],
+            ma60=ma60[idx],
+            ma200=ma200[idx],
+        )
+        for idx, (date_str, close) in enumerate(price_history)
+    ]
+
+
+@app.post("/api/backtest", response_model=BacktestResponse)
+def run_backtest(payload: BacktestRequest):
+    try:
+        result = backtest_service.run_backtest(
+            payload.start_date,
+            payload.end_date,
+            payload.initial_cash,
+            payload.buy_threshold,
+            payload.sell_threshold,
+            payload.index_type.value,
+            payload.score_ma,
+        )
+        price_history = result.get("price_history", [])
+        equity_curve = _build_equity_curve(price_history)
+        summary = BacktestSummary(
+            final_equity=result["final_value"],
+            hold_equity=result["buy_and_hold_final"],
+            total_return=result["total_return_pct"],
+            max_drawdown=result["max_drawdown_pct"],
+            trade_count=result["trade_count"],
+        )
+        return BacktestResponse(summary=summary, equity_curve=equity_curve)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception:
+        logger.exception("Backtest failed", exc_info=True)
+        raise HTTPException(
+            status_code=502,
+            detail="Backtest failed: external data unavailable.",
+        )
 
 
 # ======================
