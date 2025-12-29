@@ -4,7 +4,8 @@ from pathlib import Path
 from typing import List, Optional
 import logging
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Body, FastAPI, HTTPException
+from fastapi.encoders import jsonable_encoder
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
@@ -134,7 +135,7 @@ def get_cached_snapshot(index_type: IndexType) -> dict:
     # ここは既存 main.py と同等の実装で OK。
     # 必要に応じてキャッシュ（lru_cache 等）を入れてもよい。
     price_history = market_service.get_price_history(index_type.value)
-    macro_snapshot = macro_service.get_macro_snapshot()
+    macro_snapshot = macro_service.get_macro_series()
     today = date.today()
     events = event_service.get_events_for_date(today)
 
@@ -142,22 +143,25 @@ def get_cached_snapshot(index_type: IndexType) -> dict:
         price_history,
         base_window=50,
     )
-    macro_score = calculate_macro_score(macro_snapshot)
-    event_adjustment, event_details = calculate_event_adjustment(events)
-
-    total_score = calculate_total_score(
-        technical_score=technical_score,
-        macro_score=macro_score,
-        event_adjustment=event_adjustment,
+    macro_score, macro_details = calculate_macro_score(
+        macro_snapshot["r_10y"],
+        macro_snapshot["cpi"],
+        macro_snapshot["vix"],
     )
+    event_adjustment, event_details = calculate_event_adjustment(today, events)
+
+    total_score = calculate_total_score(technical_score, macro_score, event_adjustment)
     label = get_label(total_score)
 
-    current_price = price_history[-1]["close"] if price_history else 0.0
+    current_price = price_history[-1][1] if price_history else 0.0
+    price_history_points = [
+        {"date": price_date, "close": close} for price_date, close in price_history
+    ]
 
     return {
         "as_of": today,
         "current_price": current_price,
-        "price_history": price_history,
+        "price_history": price_history_points,
         "scores": {
             "technical": technical_score,
             "macro": macro_score,
@@ -166,6 +170,7 @@ def get_cached_snapshot(index_type: IndexType) -> dict:
             "label": label,
         },
         "technical_details": technical_details,
+        "macro_details": macro_details,
         "event_details": event_details,
     }
 
@@ -203,7 +208,7 @@ def _evaluate(position: PositionRequest) -> EvaluateResponse:
         current_price=current_price,
         scores=breakdown,
         price_history=price_points,
-        event_details=snapshot["event_details"],
+        event_details=jsonable_encoder(snapshot["event_details"]),
     )
     return response
 
@@ -214,14 +219,11 @@ def evaluate_index(position: PositionRequest):
         return _evaluate(position)
     except Exception:
         logger.exception("Failed to evaluate index")
-        raise HTTPException(
-            status_code=502,
-            detail="Evaluation failed: external data unavailable.",
-        )
+        raise HTTPException(status_code=502, detail="Evaluation failed")
 
 
 @app.post("/api/sp500/evaluate", response_model=EvaluateResponse)
-def evaluate_sp500(position: Optional[PositionRequest] = None):
+def evaluate_sp500(position: Optional[PositionRequest] = Body(default=None)):
     # フロント互換のため SP500 固定エンドポイントを残す
     payload = position or PositionRequest(index_type=IndexType.SP500, score_ma=50)
     payload.index_type = IndexType.SP500
@@ -229,10 +231,7 @@ def evaluate_sp500(position: Optional[PositionRequest] = None):
         return _evaluate(payload)
     except Exception:
         logger.exception("Failed to evaluate SP500")
-        raise HTTPException(
-            status_code=502,
-            detail="Evaluation for SP500 failed.",
-        )
+        raise HTTPException(status_code=502, detail="Evaluation failed")
 
 
 # ======================
