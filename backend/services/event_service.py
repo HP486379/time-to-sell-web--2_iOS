@@ -1,92 +1,74 @@
-# backend/services/event_service.py
 from __future__ import annotations
 
+import json
+from dataclasses import dataclass
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional
-import json
-import logging
-
-logger = logging.getLogger(__name__)
 
 
-class EventService:
-    """
-    経済イベント取得サービス
+@dataclass
+class ManualCalendarProvider:
+    """手動で管理する経済イベントカレンダー."""
 
-    優先順位:
-      1. 手動イベント JSON (例: backend/data/us_events.json)
-      2. ヒューリスティック（月次の近似スケジュール）
+    path: Path
 
-    ※ TradingEconomics など外部カレンダー API には依存しない。
-    """
+    def load_events(self) -> List[Dict]:
+        """JSON ファイルからイベント一覧を読み込む。
 
-    def __init__(self, manual_events_path: Optional[Path] = None) -> None:
-        # デフォルト: backend/services/ から見て ../data/us_events.json
-        if manual_events_path is None:
-            manual_events_path = (
-                Path(__file__).resolve().parent.parent / "data" / "us_events.json"
-            )
-
-        self.manual_events_path = manual_events_path
-        self._manual_events: List[Dict] = self._load_manual_events()
-
-    # ======================
-    # 手動イベント JSON 読み込み
-    # ======================
-
-    def _load_manual_events(self) -> List[Dict]:
+        期待するフォーマット:
+        [
+          { "name": "FOMC", "date": "2025-01-29", "importance": 5 },
+          ...
+        ]
         """
-        us_events.json を読み込み、内部的に
-        {"name": str, "date": date, "importance": int}
-        の形にして返す。
-        """
-        if not self.manual_events_path.exists():
-            logger.warning(
-                "Manual events JSON not found: %s", self.manual_events_path
-            )
-            return []
-
         try:
-            with self.manual_events_path.open("r", encoding="utf-8") as f:
+            with self.path.open("r", encoding="utf-8") as f:
                 raw = json.load(f)
+        except FileNotFoundError:
+            return []
         except Exception:
-            logger.exception("Failed to load manual events JSON")
+            # もし壊れた JSON でもアプリ全体が落ちないようにする
             return []
 
         events: List[Dict] = []
-        for item in raw:
+        for ev in raw:
             try:
-                name = (item.get("name") or "").strip()
-                date_str = item.get("date")
-                importance = int(item.get("importance", 1))
-
-                if not name or not date_str:
-                    continue
-
-                d = date.fromisoformat(date_str)
-
-                events.append(
-                    {
-                        "name": name,
-                        "date": d,
-                        "importance": importance,
-                    }
-                )
+                d = date.fromisoformat(ev["date"])
             except Exception:
-                logger.exception("Failed to parse manual event item: %s", item)
+                # 日付がおかしいレコードはスキップ
                 continue
 
-        logger.info("Loaded %d manual events from %s", len(events), self.manual_events_path)
+            events.append(
+                {
+                    "name": ev.get("name", ""),
+                    "date": d,
+                    "importance": int(ev.get("importance", 3)),
+                }
+            )
         return events
 
-    # ======================
-    # ヒューリスティック（既存ロジックを温存）
-    # ======================
+
+def load_manual_events(path: Path) -> List[Dict]:
+    """main.py から使うユーティリティ関数."""
+    provider = ManualCalendarProvider(path=path)
+    return provider.load_events()
+
+
+class EventService:
+    """FOMC / 雇用統計 / CPI をヒューリスティックに生成しつつ、
+    あれば手動カレンダー JSON を優先して使うサービス。
+    """
+
+    def __init__(self, manual_events: Optional[List[Dict]] = None):
+        # manual_events は date 型を持つ dict のリストを想定
+        self._manual_events = manual_events or []
+
+    # ===== ヒューリスティック生成 =====
 
     def _compute_third_wednesday(self, target: date) -> date:
         first_day = target.replace(day=1)
-        weekday = first_day.weekday()
+        weekday = first_day.weekday()  # Monday=0
         # Wednesday is 2
         offset = (2 - weekday) % 7
         third_wed = first_day + timedelta(days=offset + 14)
@@ -95,80 +77,51 @@ class EventService:
     def _first_friday(self, target: date) -> date:
         first_day = target.replace(day=1)
         weekday = first_day.weekday()
-        offset = (4 - weekday) % 7  # Friday is 4
-        return first_day + timedelta(days=offset)
+        # Friday is 4
+        offset = (4 - weekday) % 7
+        first_fri = first_day + timedelta(days=offset)
+        return first_fri
 
-    def _cpi_release_day(self, target: date) -> date:
-        # Approximate: 10日をデフォルトとする（実運用では手動 JSON を優先）
-        day = 10
-        return target.replace(day=day)
+    def _tenth_day(self, target: date) -> date:
+        return target.replace(day=10)
 
-    def _monthly_events_fallback(self, today: date) -> List[Dict]:
-        """
-        手動 JSON にイベントがない場合のための近似スケジュール。
-        2ヶ月分の FOMC / CPI / NFP を吐き出す。
-        """
-        month_ref = today.replace(day=1)
-        next_month = (month_ref.replace(day=28) + timedelta(days=4)).replace(day=1)
-        candidates = [month_ref, next_month]
-        events: List[Dict] = []
-        for month in candidates:
-            events.extend(
-                [
-                    {
-                        "name": "FOMC",
-                        "importance": 5,
-                        "date": self._compute_third_wednesday(month),
-                    },
-                    {
-                        "name": "CPI Release",
-                        "importance": 4,
-                        "date": self._cpi_release_day(month),
-                    },
-                    {
-                        "name": "Nonfarm Payrolls",
-                        "importance": 3,
-                        "date": self._first_friday(month),
-                    },
-                ]
-            )
+    def _monthly_events_fallback(self, target: date) -> List[Dict]:
+        """与えられた月を中心に FOMC / 雇用統計 / CPI を生成."""
+        base = target.replace(day=1)
+
+        fomc = self._compute_third_wednesday(base)
+        nfp = self._first_friday(base)
+        cpi = self._tenth_day(base)
+
+        events = [
+            {"name": "FOMC", "date": fomc, "importance": 5},
+            {"name": "Nonfarm Payrolls", "date": nfp, "importance": 4},
+            {"name": "CPI", "date": cpi, "importance": 4},
+        ]
         return events
 
-    # ======================
-    # 公開メソッド
-    # ======================
+    # ===== パブリック API =====
+
+    def _filter_window(self, events: List[Dict], target: date) -> List[Dict]:
+        """target の前後 [-7, +30] 日に入るイベントだけに絞る."""
+        window_days = 30
+        windowed = [
+            ev
+            for ev in events
+            if -7 <= (ev["date"] - target).days <= window_days
+        ]
+        return sorted(windowed, key=lambda e: e["date"])
 
     def get_events_for_date(self, target: date) -> List[Dict]:
-        """
-        指定日 target の前後を対象に、重要イベント一覧を返す。
+        # 1. 手動カレンダーを優先
+        manual = self._filter_window(self._manual_events, target) if self._manual_events else []
 
-        - まず手動イベント JSON から [-7日, +30日] に入るものを取得
-        - 1件もなければヒューリスティックで補完
-        """
-        window_days = 30
-        events: List[Dict] = []
+        if manual:
+            return manual
 
-        # 1) 手動イベント優先
-        for ev in self._manual_events:
-            delta = (ev["date"] - target).days
-            if -7 <= delta <= window_days:
-                events.append(ev)
-
-        # 2) 何もヒットしない場合だけヒューリスティックにフォールバック
-        if not events:
-            fallback_events = self._monthly_events_fallback(target)
-            for ev in fallback_events:
-                delta = (ev["date"] - target).days
-                if -7 <= delta <= window_days:
-                    events.append(ev)
-
-        # 日付順にソートして返す
-        events_sorted = sorted(events, key=lambda e: e["date"])
-        return events_sorted
+        # 2. 無ければヒューリスティック生成にフォールバック
+        fallback_events = self._monthly_events_fallback(target)
+        return self._filter_window(fallback_events, target)
 
     def get_events(self) -> List[Dict]:
-        """
-        今日を基準にしたイベント一覧を返す。
-        （既存コードのインターフェース互換）
-        """
         return self.get_events_for_date(date.today())
