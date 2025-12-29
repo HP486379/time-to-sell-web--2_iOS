@@ -85,13 +85,13 @@ class EvaluateResponse(BaseModel):
 
 
 class BacktestRequest(BaseModel):
-    index_type: IndexType
+    index_type: IndexType = IndexType.SP500
     start_date: date
     end_date: date
-    initial_capital: float
-    sell_threshold: float
-    buy_threshold: float
-    score_ma: int
+    initial_cash: float
+    buy_threshold: float = 40.0
+    sell_threshold: float = 80.0
+    score_ma: int = Field(200)
 
 
 class BacktestSummary(BaseModel):
@@ -102,9 +102,17 @@ class BacktestSummary(BaseModel):
     trade_count: int
 
 
+class BacktestPoint(BaseModel):
+    date: date
+    close: float
+    ma20: Optional[float] = None
+    ma60: Optional[float] = None
+    ma200: Optional[float] = None
+
+
 class BacktestResponse(BaseModel):
     summary: BacktestSummary
-    equity_curve: List[PricePoint]
+    equity_curve: List[BacktestPoint]
 
 
 # ======================
@@ -134,7 +142,7 @@ def get_cached_snapshot(index_type: IndexType) -> dict:
     # ここは既存 main.py と同等の実装で OK。
     # 必要に応じてキャッシュ（lru_cache 等）を入れてもよい。
     price_history = market_service.get_price_history(index_type.value)
-    macro_snapshot = macro_service.get_macro_snapshot()
+    macro_snapshot = macro_service.get_macro_series()
     today = date.today()
     events = event_service.get_events_for_date(today)
 
@@ -142,22 +150,25 @@ def get_cached_snapshot(index_type: IndexType) -> dict:
         price_history,
         base_window=50,
     )
-    macro_score = calculate_macro_score(macro_snapshot)
-    event_adjustment, event_details = calculate_event_adjustment(events)
-
-    total_score = calculate_total_score(
-        technical_score=technical_score,
-        macro_score=macro_score,
-        event_adjustment=event_adjustment,
+    macro_score, macro_details = calculate_macro_score(
+        macro_snapshot["r_10y"],
+        macro_snapshot["cpi"],
+        macro_snapshot["vix"],
     )
+    event_adjustment, event_details = calculate_event_adjustment(today, events)
+
+    total_score = calculate_total_score(technical_score, macro_score, event_adjustment)
     label = get_label(total_score)
 
-    current_price = price_history[-1]["close"] if price_history else 0.0
+    current_price = price_history[-1][1] if price_history else 0.0
+    price_history_points = [
+        {"date": price_date, "close": close} for price_date, close in price_history
+    ]
 
     return {
         "as_of": today,
         "current_price": current_price,
-        "price_history": price_history,
+        "price_history": price_history_points,
         "scores": {
             "technical": technical_score,
             "macro": macro_score,
@@ -166,6 +177,7 @@ def get_cached_snapshot(index_type: IndexType) -> dict:
             "label": label,
         },
         "technical_details": technical_details,
+        "macro_details": macro_details,
         "event_details": event_details,
     }
 
@@ -239,13 +251,61 @@ def evaluate_sp500(position: Optional[PositionRequest] = None):
 # Backtest Endpoints
 # ======================
 
+def _build_equity_curve(price_history: List[tuple]) -> List[BacktestPoint]:
+    closes = [close for _, close in price_history]
+
+    def moving_average(values: List[float], window: int) -> List[Optional[float]]:
+        averaged: List[Optional[float]] = []
+        for idx in range(len(values)):
+            if idx + 1 < window:
+                averaged.append(None)
+                continue
+            window_values = values[idx + 1 - window : idx + 1]
+            averaged.append(round(sum(window_values) / window, 2))
+        return averaged
+
+    ma20 = moving_average(closes, 20)
+    ma60 = moving_average(closes, 60)
+    ma200 = moving_average(closes, 200)
+
+    return [
+        BacktestPoint(
+            date=date.fromisoformat(date_str),
+            close=close,
+            ma20=ma20[idx],
+            ma60=ma60[idx],
+            ma200=ma200[idx],
+        )
+        for idx, (date_str, close) in enumerate(price_history)
+    ]
+
+
 @app.post("/api/backtest", response_model=BacktestResponse)
-def run_backtest(request: BacktestRequest):
+def run_backtest(payload: BacktestRequest):
     try:
-        result = backtest_service.run_backtest(request)
-        return result
+        result = backtest_service.run_backtest(
+            payload.start_date,
+            payload.end_date,
+            payload.initial_cash,
+            payload.buy_threshold,
+            payload.sell_threshold,
+            payload.index_type.value,
+            payload.score_ma,
+        )
+        price_history = result.get("price_history", [])
+        equity_curve = _build_equity_curve(price_history)
+        summary = BacktestSummary(
+            final_equity=result["final_value"],
+            hold_equity=result["buy_and_hold_final"],
+            total_return=result["total_return_pct"],
+            max_drawdown=result["max_drawdown_pct"],
+            trade_count=result["trade_count"],
+        )
+        return BacktestResponse(summary=summary, equity_curve=equity_curve)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
     except Exception:
-        logger.exception("Backtest failed")
+        logger.exception("Backtest failed", exc_info=True)
         raise HTTPException(
             status_code=502,
             detail="Backtest failed: external data unavailable.",
