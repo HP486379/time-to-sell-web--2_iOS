@@ -107,26 +107,6 @@ class BacktestResponse(BaseModel):
     equity_curve: List[PricePoint]
 
 
-class SyntheticNavResponse(BaseModel):
-    asOf: str
-    priceUsd: float
-    usdJpy: float
-    navJpy: float
-    source: str
-
-
-class FundNavResponse(BaseModel):
-    asOf: str
-    navJpy: float
-    source: str
-
-
-class FundNavResponse(BaseModel):
-    dates: List[date]
-    values: List[float]
-    latest_nav: float
-
-
 # ======================
 # Services
 # ======================
@@ -276,14 +256,22 @@ def run_backtest(request: BacktestRequest):
 # NAV Endpoints
 # ======================
 
-@app.get("/api/nav/sp500-synthetic", response_model=SyntheticNavResponse)
+@app.get("/api/nav/sp500-synthetic")
 def get_synthetic_nav():
     return nav_service.get_synthetic_nav()
 
 
-@app.get("/api/nav/emaxis-slim-sp500", response_model=FundNavResponse)
+@app.get("/api/nav/emaxis-slim-sp500")
 def get_fund_nav():
-    return nav_service.get_fund_nav()
+    nav = nav_service.get_official_nav()
+    if nav:
+        return nav
+    synthetic = nav_service.get_synthetic_nav()
+    return {
+        "asOf": synthetic["asOf"],
+        "navJpy": synthetic["navJpy"],
+        "source": "synthetic",
+    }
 
 
 # ======================
