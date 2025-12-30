@@ -2,6 +2,7 @@ from datetime import date, datetime, time, timedelta, timezone
 from typing import List, Optional
 import logging
 from enum import Enum
+
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
@@ -23,18 +24,12 @@ from services.backtest_service import BacktestService
 
 app = FastAPI(title="S&P500 Timing API")
 
-# 本番用 CORS（Vercel の URL を後で追加）
-# 例: https://time-to-sell-web--2.vercel.app
-ALLOWED_ORIGINS = [
-    "https://time-to-sell-web-2.vercel.app",
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
-]
-
+# ★ CORS はいったん「全部許可」にしてしまう
+#   （このサービスは認証なしの閲覧専用なので、ここまで緩くしても実害はほぼありません）
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=ALLOWED_ORIGINS,
-    allow_credentials=True,
+    allow_origins=["*"],        # どの Origin からでも OK
+    allow_credentials=False,    # 認証情報（Cookie 等）は使っていないので False にする
     allow_methods=["*"],
     allow_headers=["*"],
 )
