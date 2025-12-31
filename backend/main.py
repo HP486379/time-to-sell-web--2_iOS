@@ -39,8 +39,8 @@ ALLOWED_ORIGINS = [
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=ALLOWED_ORIGINS,
-    allow_credentials=True,
+    allow_origins=["*"],        # どの Origin からでも OK
+    allow_credentials=False,    # 認証情報（Cookie 等）は使っていないので False にする
     allow_methods=["*"],
     allow_headers=["*"],
 )
