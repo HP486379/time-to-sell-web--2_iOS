@@ -47,6 +47,9 @@ import { getScoreZoneText } from '../utils/alertState'
 import SellTimingAvatarCard from './SellTimingAvatarCard'
 import { decideSellAction } from '../domain/sellDecision'
 
+// ★ 追加：イベント API 用
+import { fetchEvents, type EventItem } from '../apis'
+
 const apiBase =
   import.meta.env.VITE_API_BASE ||
   (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:8000')
@@ -94,6 +97,11 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
   const [priceDisplayMode, setPriceDisplayMode] = useState<PriceDisplayMode>('normalized')
   const [positionDialogOpen, setPositionDialogOpen] = useState(false)
   const [priceSeriesMap, setPriceSeriesMap] = useState<Partial<Record<IndexType, PricePoint[]>>>({})
+
+  // ★ 追加：イベント用 state
+  const [events, setEvents] = useState<EventItem[]>([])
+  const [isEventsLoading, setIsEventsLoading] = useState(false)
+  const [eventsError, setEventsError] = useState<string | null>(null)
 
   const tooltipTexts = useMemo(
     () => buildTooltips(indexType, lastRequest.score_ma),
@@ -224,6 +232,33 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
       setCustomStart(priceSeries[0].date)
     }
   }, [startOption, customStart, priceSeries])
+
+  // ★ 追加：価格データの「最新日付」を基準にイベントを取得
+  useEffect(() => {
+    if (!priceSeries.length) return
+
+    const lastPoint = priceSeries[priceSeries.length - 1]
+    const lastDateIso = lastPoint?.date
+    if (!lastDateIso) return
+
+    const run = async () => {
+      try {
+        setIsEventsLoading(true)
+        setEventsError(null)
+
+        const data = await fetchEvents(lastDateIso)
+        setEvents(data)
+        console.log('[EVENT TRACE]', data)
+      } catch (e: any) {
+        console.error('イベント取得に失敗しました', e)
+        setEventsError(e.message ?? 'イベント取得に失敗しました')
+      } finally {
+        setIsEventsLoading(false)
+      }
+    }
+
+    run()
+  }, [indexType, priceSeries])
 
   const scoreMaLabel = displayMode === 'simple' ? '売りの目安（期間）' : 'スコア算出MA'
   const scoreMaOptions = [
@@ -447,7 +482,14 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
           <MacroCards macroDetails={response?.macro_details} tooltips={tooltipTexts} />
         </Grid>
         <Grid item xs={12} md={5}>
-          <EventList eventDetails={response?.event_details} tooltips={tooltipTexts} />
+          {/* ★ イベント一覧：旧 event_details に加えて /api/events の結果も渡す */}
+          <EventList
+            eventDetails={response?.event_details}
+            events={events}
+            isLoading={isEventsLoading}
+            error={eventsError}
+            tooltips={tooltipTexts}
+          />
         </Grid>
       </Grid>
 
@@ -619,7 +661,7 @@ function calculatePeriodReturn(series: PricePoint[]): number | null {
   const first = series[0].close
   const last = series[series.length - 1].close
   if (first === 0) return null
-  return ((last / first - 1) * 100)
+  return (last / first - 1) * 100
 }
 
 function formatPercentage(value: number): string {
