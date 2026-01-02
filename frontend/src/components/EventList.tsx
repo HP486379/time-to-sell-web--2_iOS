@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react'
+import React, { useMemo, useState } from 'react'
 import {
   Card,
   CardContent,
@@ -10,7 +10,10 @@ import {
   Divider,
   Skeleton,
   Alert,
+  Collapse,
+  IconButton,
 } from '@mui/material'
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import dayjs from 'dayjs'
 import 'dayjs/locale/ja'
 import type { EventItem } from '../apis'
@@ -35,6 +38,7 @@ dayjs.locale('ja')
 const EventList: React.FC<Props> = ({ eventDetails, events, isLoading, error, tooltips }) => {
   const title = tooltips?.events?.title ?? '重要イベント'
 
+  // ====== manual > heuristic のマージ ======
   const mergedEvents = useMemo(() => {
     if (!events || events.length === 0) return []
 
@@ -63,6 +67,7 @@ const EventList: React.FC<Props> = ({ eventDetails, events, isLoading, error, to
 
   const today = dayjs().startOf('day')
 
+  // 直近イベントの index（今日か未来で一番近いもの）
   const firstUpcomingIndex = useMemo(() => {
     if (!mergedEvents.length) return -1
     return mergedEvents.findIndex((e) => {
@@ -70,6 +75,26 @@ const EventList: React.FC<Props> = ({ eventDetails, events, isLoading, error, to
       return d.isSame(today, 'day') || d.isAfter(today, 'day')
     })
   }, [mergedEvents, today])
+
+  const nextEvent =
+    firstUpcomingIndex >= 0 && firstUpcomingIndex < mergedEvents.length
+      ? mergedEvents[firstUpcomingIndex]
+      : null
+
+  const nextDiffDays =
+    nextEvent != null ? dayjs(nextEvent.date).startOf('day').diff(today, 'day') : null
+
+  // 「どのイベントが next か」をキーで判定
+  const nextEventKey =
+    nextEvent != null ? `${nextEvent.name}|${nextEvent.date}|${nextEvent.source}` : null
+
+  // これから/過去 で分割
+  const upcomingEvents = mergedEvents.filter((e) => !dayjs(e.date).isBefore(today, 'day'))
+  const pastEvents = mergedEvents.filter((e) => dayjs(e.date).isBefore(today, 'day'))
+
+  // アコーディオンの開閉
+  const [showUpcoming, setShowUpcoming] = useState(true)
+  const [showPast, setShowPast] = useState(false)
 
   const eventAdjust = eventDetails?.E_adj ?? null
 
@@ -112,9 +137,93 @@ const EventList: React.FC<Props> = ({ eventDetails, events, isLoading, error, to
     )
   }
 
+  const renderEventRow = (ev: EventItem) => {
+    const key = `${ev.name}|${ev.date}|${ev.source}`
+    const isPast = dayjs(ev.date).isBefore(today, 'day')
+    const isNext = key === nextEventKey
+
+    return (
+      <Box
+        key={key}
+        sx={(theme) => ({
+          borderRadius: 1.5,
+          px: 1.2,
+          py: 0.8,
+          display: 'flex',
+          alignItems: 'flex-start',
+          gap: 1,
+          bgcolor: isNext
+            ? theme.palette.mode === 'dark'
+              ? 'rgba(144, 202, 249, 0.12)'
+              : 'rgba(25, 118, 210, 0.06)'
+            : 'transparent',
+          opacity: isPast ? 0.65 : 1,
+        })}
+      >
+        <Box sx={{ minWidth: 110 }}>
+          <Typography variant="body2" sx={{ fontWeight: isNext ? 600 : 400 }}>
+            {formatDateJp(ev.date)}
+          </Typography>
+        </Box>
+        <Box sx={{ flex: 1, minWidth: 0 }}>
+          <Typography variant="body2" noWrap sx={{ fontWeight: isNext ? 600 : 400 }}>
+            {ev.name}
+          </Typography>
+          <Stack direction="row" spacing={0.8} mt={0.4} flexWrap="wrap">
+            {getImportanceChip(ev.importance)}
+            {getSourceChip(ev.source)}
+            {isNext && (
+              <Chip
+                size="small"
+                color="secondary"
+                variant="outlined"
+                label="直近"
+              />
+            )}
+          </Stack>
+        </Box>
+      </Box>
+    )
+  }
+
+  const renderSectionHeader = (
+    label: string,
+    open: boolean,
+    toggle: () => void,
+    extra?: React.ReactNode,
+  ) => (
+    <Box
+      sx={(theme) => ({
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        mt: 1,
+        mb: 0.5,
+        px: 0.4,
+        color: theme.palette.text.secondary,
+      })}
+    >
+      <Stack direction="row" spacing={1} alignItems="center">
+        <Typography variant="subtitle2">{label}</Typography>
+        {extra}
+      </Stack>
+      <IconButton
+        size="small"
+        onClick={toggle}
+        sx={{
+          transform: open ? 'rotate(180deg)' : 'rotate(0deg)',
+          transition: 'transform 0.15s ease-out',
+        }}
+      >
+        <ExpandMoreIcon fontSize="small" />
+      </IconButton>
+    </Box>
+  )
+
   return (
     <Card sx={{ height: '100%' }}>
       <CardContent sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+        {/* タイトル行 + イベント補正 */}
         <Stack direction="row" alignItems="center" justifyContent="space-between">
           <Tooltip title={title} arrow>
             <Typography variant="h6" component="div">
@@ -130,6 +239,38 @@ const EventList: React.FC<Props> = ({ eventDetails, events, isLoading, error, to
           )}
         </Stack>
 
+        {/* ② 次の重要イベントまであと◯日 */}
+        {!isLoading && !error && nextEvent && (
+          <Box
+            sx={(theme) => ({
+              px: 1,
+              py: 0.75,
+              borderRadius: 1.5,
+              bgcolor:
+                theme.palette.mode === 'dark'
+                  ? 'rgba(144, 202, 249, 0.12)'
+                  : 'rgba(25, 118, 210, 0.06)',
+            })}
+          >
+            <Typography variant="caption" color="text.secondary">
+              ⏰ 次の重要イベントまで
+            </Typography>
+            <Stack direction="row" spacing={1} alignItems="baseline" flexWrap="wrap">
+              <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                {nextDiffDays === 0
+                  ? '本日'
+                  : nextDiffDays === 1
+                    ? 'あと 1 日'
+                    : `あと ${nextDiffDays} 日`}
+              </Typography>
+              <Typography variant="body2">
+                （{formatDateJp(nextEvent.date)} {nextEvent.name}）
+              </Typography>
+            </Stack>
+          </Box>
+        )}
+
+        {/* ローディング & エラー */}
         {isLoading && (
           <Stack spacing={1.2} mt={1}>
             <Skeleton variant="text" height={24} />
@@ -144,73 +285,64 @@ const EventList: React.FC<Props> = ({ eventDetails, events, isLoading, error, to
           </Alert>
         )}
 
+        {/* イベント 0 件 */}
         {!isLoading && !error && mergedEvents.length === 0 && (
           <Typography variant="body2" color="text.secondary" mt={1}>
             現在、対象期間（直近1週間〜30日先）に登録されたイベントはありません。
           </Typography>
         )}
 
+        {/* ④ アコーディオン（これから / 過去） */}
         {!isLoading && !error && mergedEvents.length > 0 && (
           <>
-            <Stack spacing={1.0} mt={0.5}>
-              {mergedEvents.map((ev, index) => {
-                const isUpcoming = index === firstUpcomingIndex
-                const isPast = dayjs(ev.date).isBefore(today, 'day')
+            {/* これからのイベント */}
+            {upcomingEvents.length > 0 && (
+              <>
+                {renderSectionHeader(
+                  'これからのイベント',
+                  showUpcoming,
+                  () => setShowUpcoming((v) => !v),
+                  <Chip
+                    size="small"
+                    variant="outlined"
+                    label={`${upcomingEvents.length} 件`}
+                  />,
+                )}
+                <Collapse in={showUpcoming}>
+                  <Stack spacing={1.0} mt={0.5}>
+                    {upcomingEvents.map((ev) => renderEventRow(ev))}
+                  </Stack>
+                </Collapse>
+              </>
+            )}
 
-                return (
-                  <Box
-                    key={`${ev.name}-${ev.date}-${ev.source}-${index}`}
-                    sx={(theme) => ({
-                      borderRadius: 1.5,
-                      px: 1.2,
-                      py: 0.8,
-                      display: 'flex',
-                      alignItems: 'flex-start',
-                      gap: 1,
-                      bgcolor: isUpcoming
-                        ? theme.palette.mode === 'dark'
-                          ? 'rgba(144, 202, 249, 0.12)'
-                          : 'rgba(25, 118, 210, 0.06)'
-                        : 'transparent',
-                      opacity: isPast ? 0.65 : 1,
-                    })}
-                  >
-                    <Box sx={{ minWidth: 110 }}>
-                      <Typography variant="body2" sx={{ fontWeight: isUpcoming ? 600 : 400 }}>
-                        {formatDateJp(ev.date)}
-                      </Typography>
-                    </Box>
-                    <Box sx={{ flex: 1, minWidth: 0 }}>
-                      <Typography
-                        variant="body2"
-                        noWrap
-                        sx={{ fontWeight: isUpcoming ? 600 : 400 }}
-                      >
-                        {ev.name}
-                      </Typography>
-                      <Stack direction="row" spacing={0.8} mt={0.4} flexWrap="wrap">
-                        {getImportanceChip(ev.importance)}
-                        {getSourceChip(ev.source)}
-                        {isUpcoming && (
-                          <Chip
-                            size="small"
-                            color="secondary"
-                            variant="outlined"
-                            label="直近"
-                          />
-                        )}
-                      </Stack>
-                    </Box>
-                  </Box>
-                )
-              })}
-            </Stack>
+            {/* 過去のイベント */}
+            {pastEvents.length > 0 && (
+              <>
+                {renderSectionHeader(
+                  '過去のイベント',
+                  showPast,
+                  () => setShowPast((v) => !v),
+                  <Chip
+                    size="small"
+                    variant="outlined"
+                    label={`${pastEvents.length} 件`}
+                  />,
+                )}
+                <Collapse in={showPast}>
+                  <Stack spacing={1.0} mt={0.5}>
+                    {pastEvents.map((ev) => renderEventRow(ev))}
+                  </Stack>
+                </Collapse>
+              </>
+            )}
 
             <Divider sx={{ my: 1.5 }} />
 
             <Typography variant="caption" color="text.secondary">
               「手動」はあなたが JSON に登録した正確な日付、「推定」はカレンダー規則から算出したおおよその日付です。
               手動登録されたイベントがある場合は、同じ日付・同じイベント名の推定イベントよりも優先して表示されています。
+              過去のイベントはグレーアウトされ、必要に応じて折りたたむことができます。
             </Typography>
           </>
         )}
