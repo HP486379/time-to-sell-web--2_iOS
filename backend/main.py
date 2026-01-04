@@ -203,8 +203,8 @@ def _build_snapshot(index_type: IndexType = IndexType.SP500):
         macro_data["r_10y"], macro_data["cpi"], macro_data["vix"]
     )
 
-     = event_service.get_()
-    event_adjustment, event_details = calculate_event_adjustment(date.today(), )
+     events = event_service.get_events()
+event_adjustment, event_details = calculate_event_adjustment(date.today(), events)
 
     total_score = calculate_total_score(technical_score, macro_score, event_adjustment)
     label = get_label(total_score)
