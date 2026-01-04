@@ -3,7 +3,7 @@ from typing import List, Optional
 import logging
 from enum import Enum
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
@@ -24,12 +24,10 @@ from services.backtest_service import BacktestService
 
 app = FastAPI(title="S&P500 Timing API")
 
-# ★ CORS はいったん「全部許可」にしてしまう
-#   （このサービスは認証なしの閲覧専用なので、ここまで緩くしても実害はほぼありません）
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],        # どの Origin からでも OK
-    allow_credentials=False,    # 認証情報（Cookie 等）は使っていないので False にする
+    allow_origins=["*"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -131,7 +129,7 @@ logger = logging.getLogger(__name__)
 
 market_service = SP500MarketService()
 macro_service = MacroDataService()
-event_service = ervice()
+event_service = EventService()  # ← ここが正解
 nav_service = FundNavService()
 backtest_service = BacktestService(market_service, macro_service, event_service)
 
@@ -198,13 +196,15 @@ def _build_snapshot(index_type: IndexType = IndexType.SP500):
         current_price = price_history[-1][1]
 
     technical_score, technical_details = calculate_technical_score(price_history)
+
     macro_data = macro_service.get_macro_series()
     macro_score, macro_details = calculate_macro_score(
         macro_data["r_10y"], macro_data["cpi"], macro_data["vix"]
     )
 
-     events = event_service.get_events()
-event_adjustment, event_details = calculate_event_adjustment(date.today(), events)
+    # ★ここは必ずこの2行セット（インデント崩すな）
+    events = event_service.get_events()
+    event_adjustment, event_details = calculate_event_adjustment(date.today(), events)
 
     total_score = calculate_total_score(technical_score, macro_score, event_adjustment)
     label = get_label(total_score)
@@ -296,6 +296,7 @@ def _evaluate(position: PositionRequest):
     )
     macro_score = snapshot["scores"]["macro"]
     event_adjustment = snapshot["scores"]["event_adjustment"]
+
     total_score = calculate_total_score(technical_score, macro_score, event_adjustment)
     label = get_label(total_score)
 
@@ -355,6 +356,35 @@ def backtest(payload: BacktestRequest):
         )
 
 
+# ============================
+# Events API（デバッグ用）
+# ============================
+
+@app.get("/api/events")
+def get_events_api(date: Optional[str] = Query(None)):
+    """
+    デバッグ用イベント取得API
+    - /api/events?date=2026-01-02
+    - /api/events          ← 今日基準
+    """
+    try:
+        target = datetime.strptime(date, "%Y-%m-%d").date() if date else date_today()
+        events = event_service.get_events_for_date(target)
+
+        for e in events:
+            d = e.get("date")
+            if isinstance(d, date):
+                e["date"] = d.isoformat()
+
+        return {"events": events, "target": target.isoformat()}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def date_today() -> date:
+    return datetime.today().date()
+
+
 # ======================
 # Standalone Run
 # ======================
@@ -362,30 +392,3 @@ def backtest(payload: BacktestRequest):
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
-
-# ============================
-# Events API（デバッグ用）
-# ============================
-from fastapi import Query
-from datetime import datetime, date as Date
-
-@app.get("/api/events")
-def get_events_api(date: str = Query(None)):
-    """
-    デバッグ用イベント取得API
-    - /api/events?date=2026-01-02
-    - /api/events          ← 今日基準
-    """
-    target = datetime.strptime(date, "%Y-%m-%d").date() if date else Date.today()
-
-    events = event_service.get_events_for_date(target)
-
-    # date型が混ざってたらISO文字列へ
-    for e in events:
-        if isinstance(e.get("date"), Date):
-            e["date"] = e["date"].isoformat()
-
-    return {"events": events, "target": target.isoformat()}
-
-    except Exception as e:
-        return {"error": str(e)}
