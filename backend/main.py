@@ -362,3 +362,38 @@ def backtest(payload: BacktestRequest):
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
+
+# ============================
+# Events API（デバッグ用）
+# ============================
+from fastapi import Query
+from datetime import datetime
+from services.event_service import EventService
+
+event_service = EventService()
+
+@app.get("/api/events")
+def get_events_api(date: str = Query(None)):
+    """
+    デバッグ用イベント取得API
+    - /api/events?date=2025-01-29
+    - /api/events          ← 今日基準
+    """
+    try:
+        if date:
+            # 文字列 → date に変換
+            target = datetime.strptime(date, "%Y-%m-%d").date()
+        else:
+            target = datetime.today().date()
+
+        events = event_service.get_events_for_date(target)
+
+        # datetime.date を str に変換（FastAPI はそのまま返せない）
+        for e in events:
+            if isinstance(e["date"], datetime.__bases__[0]):   # isinstance(date)
+                e["date"] = e["date"].isoformat()
+
+        return {"events": events, "target": target.isoformat()}
+
+    except Exception as e:
+        return {"error": str(e)}
