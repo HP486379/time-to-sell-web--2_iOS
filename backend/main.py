@@ -129,7 +129,7 @@ logger = logging.getLogger(__name__)
 
 market_service = SP500MarketService()
 macro_service = MacroDataService()
-event_service = EventService()  # ← ここが正解
+event_service = EventService()          # ← ここは必ず EventService()
 nav_service = FundNavService()
 backtest_service = BacktestService(market_service, macro_service, event_service)
 
@@ -196,13 +196,12 @@ def _build_snapshot(index_type: IndexType = IndexType.SP500):
         current_price = price_history[-1][1]
 
     technical_score, technical_details = calculate_technical_score(price_history)
-
     macro_data = macro_service.get_macro_series()
     macro_score, macro_details = calculate_macro_score(
         macro_data["r_10y"], macro_data["cpi"], macro_data["vix"]
     )
 
-    # ★ここは必ずこの2行セット（インデント崩すな）
+    # ★ここがあなたの赤枠（/api/events）系の根っこ：イベント取得→補正
     events = event_service.get_events()
     event_adjustment, event_details = calculate_event_adjustment(date.today(), events)
 
@@ -296,7 +295,6 @@ def _evaluate(position: PositionRequest):
     )
     macro_score = snapshot["scores"]["macro"]
     event_adjustment = snapshot["scores"]["event_adjustment"]
-
     total_score = calculate_total_score(technical_score, macro_score, event_adjustment)
     label = get_label(total_score)
 
@@ -361,28 +359,27 @@ def backtest(payload: BacktestRequest):
 # ============================
 
 @app.get("/api/events")
-def get_events_api(date: Optional[str] = Query(None)):
+def get_events_api(date: str = Query(None)):
     """
     デバッグ用イベント取得API
     - /api/events?date=2026-01-02
     - /api/events          ← 今日基準
     """
     try:
-        target = datetime.strptime(date, "%Y-%m-%d").date() if date else date_today()
+        target = datetime.strptime(date, "%Y-%m-%d").date() if date else date.today()
+
         events = event_service.get_events_for_date(target)
 
+        # date型が混ざってたらISO文字列へ
         for e in events:
             d = e.get("date")
-            if isinstance(d, date):
+            if isinstance(d, (date,)):
                 e["date"] = d.isoformat()
 
         return {"events": events, "target": target.isoformat()}
+
     except Exception as e:
         return {"error": str(e)}
-
-
-def date_today() -> date:
-    return datetime.today().date()
 
 
 # ======================
