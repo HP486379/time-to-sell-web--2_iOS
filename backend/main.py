@@ -131,7 +131,7 @@ logger = logging.getLogger(__name__)
 
 market_service = SP500MarketService()
 macro_service = MacroDataService()
-event_service = EventService()
+event_service = ervice()
 nav_service = FundNavService()
 backtest_service = BacktestService(market_service, macro_service, event_service)
 
@@ -203,8 +203,8 @@ def _build_snapshot(index_type: IndexType = IndexType.SP500):
         macro_data["r_10y"], macro_data["cpi"], macro_data["vix"]
     )
 
-    events = event_service.get_events()
-    event_adjustment, event_details = calculate_event_adjustment(date.today(), events)
+     = event_service.get_()
+    event_adjustment, event_details = calculate_event_adjustment(date.today(), )
 
     total_score = calculate_total_score(technical_score, macro_score, event_adjustment)
     label = get_label(total_score)
@@ -367,33 +367,28 @@ if __name__ == "__main__":
 # Events API（デバッグ用）
 # ============================
 from fastapi import Query
-from datetime import datetime
-from services.event_service import EventService
-
-event_service = EventService()
+from datetime import datetime, date as Date
 
 @app.get("/api/events")
 def get_events_api(date: str = Query(None)):
     """
     デバッグ用イベント取得API
-    - /api/events?date=2025-01-29
+    - /api/events?date=2026-01-02
     - /api/events          ← 今日基準
     """
-    try:
-        if date:
-            # 文字列 → date に変換
-            target = datetime.strptime(date, "%Y-%m-%d").date()
-        else:
-            target = datetime.today().date()
+    if date:
+        target = datetime.strptime(date, "%Y-%m-%d").date()
+    else:
+        target = Date.today()
 
-        events = event_service.get_events_for_date(target)
+    events = event_service.get_events_for_date(target)
 
-        # datetime.date を str に変換（FastAPI はそのまま返せない）
-        for e in events:
-            if isinstance(e["date"], datetime.__bases__[0]):   # isinstance(date)
-                e["date"] = e["date"].isoformat()
+    # date型が混ざってたらISO文字列へ
+    for e in events:
+        if isinstance(e.get("date"), Date):
+            e["date"] = e["date"].isoformat()
 
-        return {"events": events, "target": target.isoformat()}
+    return {"events": events, "target": target.isoformat()}
 
     except Exception as e:
         return {"error": str(e)}
