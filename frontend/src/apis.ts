@@ -1,9 +1,18 @@
 import type { BacktestRequest, BacktestResult } from './types/apis'
 
+/**
+ * バックエンドのベースURL
+ * - 通常: VITE_API_BASE（Render本番など）
+ * - 未設定時: window.location.origin（ローカル動作用）
+ */
 const apiBase =
   import.meta.env.VITE_API_BASE ||
   (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:8000')
 
+/**
+ * バックテスト実行 API
+ * POST /api/backtest
+ */
 export async function runBacktest(payload: BacktestRequest): Promise<BacktestResult> {
   const res = await fetch(`${apiBase}/api/backtest`, {
     method: 'POST',
@@ -17,4 +26,47 @@ export async function runBacktest(payload: BacktestRequest): Promise<BacktestRes
   }
 
   return res.json()
+}
+
+/**
+ * イベント1件分の型
+ * backend の EventService / /api/events のレスポンスに対応
+ */
+export interface EventItem {
+  name: string
+  importance: number
+  date: string // ISO形式 "2025-01-29"
+  source?: 'manual' | 'heuristic' | string
+  // 将来フィールド追加されても壊れないようにしておく
+  [key: string]: unknown
+}
+
+/**
+ * イベント取得 API
+ * GET /api/events?date=YYYY-MM-DD
+ *
+ * 例:
+ *  - fetchEvents('2025-01-29')
+ *  - fetchEvents()  // 日付未指定の場合はバックエンド側で「今日」扱い
+ */
+export async function fetchEvents(dateIso?: string): Promise<EventItem[]> {
+  const url = new URL(`${apiBase}/api/events`)
+
+  if (dateIso) {
+    url.searchParams.set('date', dateIso)
+  }
+
+  const res = await fetch(url.toString(), {
+    method: 'GET',
+  })
+
+  if (!res.ok) {
+    const text = await res.text()
+    console.error('Events API error:', res.status, text)
+    throw new Error(`Failed to fetch events: ${res.status} ${text}`)
+  }
+
+  const json = await res.json()
+  // backend 側で { events: [...] } 形式を返している前提
+  return (json?.events ?? []) as EventItem[]
 }
