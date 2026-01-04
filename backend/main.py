@@ -376,10 +376,7 @@ def get_events_api(date: str = Query(None)):
     - /api/events?date=2026-01-02
     - /api/events          ← 今日基準
     """
-    if date:
-        target = datetime.strptime(date, "%Y-%m-%d").date()
-    else:
-        target = Date.today()
+    target = datetime.strptime(date, "%Y-%m-%d").date() if date else Date.today()
 
     events = event_service.get_events_for_date(target)
 
