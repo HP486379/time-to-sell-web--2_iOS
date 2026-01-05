@@ -354,31 +354,41 @@ def backtest(payload: BacktestRequest):
         )
 
 
-# ============================
+# =========================
 # Events API（デバッグ用）
-# ============================
+# =========================
+
+from datetime import date as dt_date  # ★ date型と引数名の衝突回避のため alias
 
 @app.get("/api/events")
-def get_events_api(date: str = Query(None)):
+def get_events_api(date_str: str = Query(None)):
     """
     デバッグ用イベント取得API
+
     - /api/events?date=2026-01-02
-    - /api/events          ← 今日基準
+    - /api/events   ← 今日基準
     """
     try:
-        target = datetime.strptime(date, "%Y-%m-%d").date() if date else date.today()
+        # ★ クエリ文字列 date_str をパースして target(date) を作る
+        target = (
+            datetime.strptime(date_str, "%Y-%m-%d").date()
+            if date_str
+            else dt_date.today()
+        )
 
+        # EventServiceからイベント取得（dictの配列想定）
         events = event_service.get_events_for_date(target)
 
-        # date型が混ざってたらISO文字列へ
+        # date型が混ざってたらISO文字列へ変換
         for e in events:
             d = e.get("date")
-            if isinstance(d, (date,)):
+            if isinstance(d, dt_date):
                 e["date"] = d.isoformat()
 
         return {"events": events, "target": target.isoformat()}
 
     except Exception as e:
+        # 既存仕様に合わせて握りつぶし（現状の挙動を維持）
         return {"error": str(e)}
 
 
