@@ -1,11 +1,11 @@
 [
-  { "date": "2026-01-06", "name": "ISM Manufacturing", "importance": 4 },
-  { "date": "2026-01-09", "name": "Nonfarm Payrolls", "importance": 5 },
-  { "date": "2026-01-13", "name": "CPI Release", "importance": 4 },
-  { "date": "2026-01-14", "name": "Retail Sales", "importance": 4 },
-  { "date": "2026-01-22", "name": "GDP", "importance": 4 },
-  { "date": "2026-01-27", "name": "FOMC", "importance": 5 },
-  { "date": "2026-01-29", "name": "PCE", "importance": 4 },
+  { "date": "2026-01-06", "name": "ISM Manufacturing(ISM製造業景況感指数)", "importance": 4 },
+  { "date": "2026-01-09", "name": "Nonfarm Payrolls(非農業部門雇用者数)", "importance": 5 },
+  { "date": "2026-01-13", "name": "CPI Release(消費者物価指数【CPI 総合／コア、前年比・前月比】)", "importance": 4 },
+  { "date": "2026-01-14", "name": "Retail Sales(小売売上高【総合／自動車除くコア】)", "importance": 4 },
+  { "date": "2026-01-22", "name": "GDP(実質GDP【前期比年率・確報】)", "importance": 4 },
+  { "date": "2026-01-27", "name": "FOMC(FRB政策金利【FOMC会合結果】)", "importance": 5 },
+  { "date": "2026-01-29", "name": "PCE(PCEデフレータ／PCEコア)", "importance": 4 },
 
   { "date": "2026-02-03", "name": "ISM Manufacturing", "importance": 4 },
   { "date": "2026-02-06", "name": "Nonfarm Payrolls", "importance": 5 },
@@ -13,3 +13,4 @@
   { "date": "2026-02-17", "name": "Retail Sales", "importance": 4 },
   { "date": "2026-02-26", "name": "PCE", "importance": 4 }
 ]
+
