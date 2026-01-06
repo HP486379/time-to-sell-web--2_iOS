@@ -16,6 +16,7 @@ class EventItem:
   importance: int
   date: date
   source: str  # "manual" or "heuristic"
+  description: Optional[str] = None
 
 
 class EventService:
@@ -72,6 +73,7 @@ class EventService:
         dt_str = item["date"]
         name = str(item.get("name", "")).strip()
         importance = int(item.get("importance", 3))
+        description = item.get("description")
 
         # 💡 ここが重要：文字列 → datetime.date に確実に変換
         dt = date.fromisoformat(dt_str)
@@ -82,6 +84,7 @@ class EventService:
             importance=importance,
             date=dt,
             source="manual",
+            description=description if description else None,
           )
         )
       except Exception as exc:  # フォーマットがおかしい行はスキップ
@@ -129,18 +132,21 @@ class EventService:
             importance=5,
             date=self._compute_third_wednesday(month),
             source="heuristic",
+            description=None,
           ),
           EventItem(
             name="CPI Release",
             importance=4,
             date=self._cpi_release_day(month),
             source="heuristic",
+            description=None,
           ),
           EventItem(
             name="Nonfarm Payrolls",
             importance=3,
             date=self._first_friday(month),
             source="heuristic",
+            description=None,
           ),
         ]
       )
@@ -203,6 +209,7 @@ class EventService:
           "importance": it.importance,
           "date": event_date,
           "source": it.source,
+          "description": it.description,
         }
       )
 
