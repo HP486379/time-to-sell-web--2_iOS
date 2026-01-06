@@ -163,6 +163,11 @@ const EventList: React.FC<Props> = ({ eventDetails, events, isLoading, error, to
           <Typography variant="body2" noWrap sx={{ fontWeight: isNext ? 600 : 400 }}>
             {ev.name}
           </Typography>
+          {ev.description && (
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.4 }}>
+              {ev.description}
+            </Typography>
+          )}
           <Stack direction="row" spacing={0.8} mt={0.4} flexWrap="wrap">
             {getImportanceChip(ev.importance)}
             {sourceChip}

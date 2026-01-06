@@ -62,6 +62,14 @@ class PricePoint(BaseModel):
     ma200: Optional[float]
 
 
+class Event(BaseModel):
+    name: str
+    importance: int
+    date: str
+    source: Optional[str] = None
+    description: Optional[str] = None
+
+
 class EvaluateResponse(BaseModel):
     current_price: float
     market_value: float

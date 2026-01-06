@@ -15,7 +15,8 @@ class EventItem:
   name: str
   importance: int
   date: date
-  source: str  # "manual"
+  source: str  # "manual" or "heuristic"
+  description: Optional[str] = None
 
 
 class EventService:
@@ -70,6 +71,7 @@ class EventService:
         dt_str = item["date"]
         name = str(item.get("name", "")).strip()
         importance = int(item.get("importance", 3))
+        description = item.get("description")
 
         # 💡 ここが重要：文字列 → datetime.date に確実に変換
         dt = date.fromisoformat(dt_str)
@@ -80,6 +82,7 @@ class EventService:
             importance=importance,
             date=dt,
             source="manual",
+            description=description if description else None,
           )
         )
       except Exception as exc:  # フォーマットがおかしい行はスキップ
@@ -87,6 +90,64 @@ class EventService:
 
     # 日付順にしておく
     events.sort(key=lambda e: e.date)
+    return events
+
+  # =============== 簡易ヒューリスティックイベント ===============
+
+  def _compute_third_wednesday(self, target: date) -> date:
+    first_day = target.replace(day=1)
+    weekday = first_day.weekday()
+    # Wednesday is 2
+    offset = (2 - weekday) % 7
+    third_wed = first_day + timedelta(days=offset + 14)
+    return third_wed
+
+  def _first_friday(self, target: date) -> date:
+    first_day = target.replace(day=1)
+    weekday = first_day.weekday()
+    offset = (4 - weekday) % 7  # Friday is 4
+    return first_day + timedelta(days=offset)
+
+  def _cpi_release_day(self, target: date) -> date:
+    # Approximate: 10日をデフォルトとする（実運用ではAPI差し替え予定だったが、今は使用しない）
+    day = 10
+    return target.replace(day=day)
+
+  def _monthly_events(self, today: date) -> List[EventItem]:
+    """
+    ヒューリスティックで「今月 & 来月」の代表イベントをざっくり生成。
+    """
+    month_ref = today.replace(day=1)
+    next_month = (month_ref.replace(day=28) + timedelta(days=4)).replace(day=1)
+    candidates = [month_ref, next_month]
+    events: List[EventItem] = []
+
+    for month in candidates:
+      events.extend(
+        [
+          EventItem(
+            name="FOMC",
+            importance=5,
+            date=self._compute_third_wednesday(month),
+            source="heuristic",
+            description=None,
+          ),
+          EventItem(
+            name="CPI Release",
+            importance=4,
+            date=self._cpi_release_day(month),
+            source="heuristic",
+            description=None,
+          ),
+          EventItem(
+            name="Nonfarm Payrolls",
+            importance=3,
+            date=self._first_friday(month),
+            source="heuristic",
+            description=None,
+          ),
+        ]
+      )
     return events
 
   # =============== 公開 API ===============
@@ -123,6 +184,7 @@ class EventService:
           "importance": it.importance,
           "date": event_date,
           "source": it.source,
+          "description": it.description,
         }
       )
 
