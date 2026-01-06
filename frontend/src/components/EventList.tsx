@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import {
   Card,
   CardContent,
@@ -119,14 +119,7 @@ const EventList: React.FC<Props> = ({ eventDetails, events, isLoading, error, to
 
   const getSourceChip = (source: string) => {
     if (source === 'manual') {
-      return (
-        <Chip
-          size="small"
-          color="primary"
-          variant="filled"
-          label="手動"
-        />
-      )
+      return null
     }
     return (
       <Chip
@@ -141,6 +134,7 @@ const EventList: React.FC<Props> = ({ eventDetails, events, isLoading, error, to
     const key = `${ev.name}|${ev.date}|${ev.source}`
     const isPast = dayjs(ev.date).isBefore(today, 'day')
     const isNext = key === nextEventKey
+    const sourceChip = getSourceChip(ev.source)
 
     return (
       <Box
@@ -169,9 +163,14 @@ const EventList: React.FC<Props> = ({ eventDetails, events, isLoading, error, to
           <Typography variant="body2" noWrap sx={{ fontWeight: isNext ? 600 : 400 }}>
             {ev.name}
           </Typography>
+          {ev.description && (
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.4 }}>
+              {ev.description}
+            </Typography>
+          )}
           <Stack direction="row" spacing={0.8} mt={0.4} flexWrap="wrap">
             {getImportanceChip(ev.importance)}
-            {getSourceChip(ev.source)}
+            {sourceChip}
             {isNext && (
               <Chip
                 size="small"
@@ -219,6 +218,51 @@ const EventList: React.FC<Props> = ({ eventDetails, events, isLoading, error, to
       </IconButton>
     </Box>
   )
+
+  const ymKey = (dateStr: string) => {
+    const parsed = dayjs(dateStr)
+    if (!parsed.isValid()) return dateStr
+    return parsed.format('YYYY-MM')
+  }
+
+  const groupByMonth = (items: EventItem[]) => {
+    const sorted = [...items].sort((a, b) => dayjs(a.date).diff(dayjs(b.date)))
+    const groups: { ym: string; items: EventItem[] }[] = []
+    for (const item of sorted) {
+      const key = ymKey(item.date)
+      const last = groups[groups.length - 1]
+      if (last && last.ym === key) {
+        last.items.push(item)
+      } else {
+        groups.push({ ym: key, items: [item] })
+      }
+    }
+    return groups
+  }
+
+  const upcomingGroups = useMemo(() => groupByMonth(upcomingEvents), [upcomingEvents])
+
+  const [openMonths, setOpenMonths] = useState<Record<string, boolean>>({})
+
+  useEffect(() => {
+    if (upcomingGroups.length === 0) return
+    const currentYm = today.format('YYYY-MM')
+    setOpenMonths((prev) => {
+      const nextState = { ...prev }
+      for (const group of upcomingGroups) {
+        if (!(group.ym in nextState)) {
+          nextState[group.ym] = group.ym === currentYm
+        }
+      }
+      return nextState
+    })
+  }, [upcomingGroups, today])
+
+  const formatMonthHeader = (ym: string, count: number) => {
+    const parsed = dayjs(`${ym}-01`)
+    const label = parsed.isValid() ? parsed.format('YYYY年MM月') : ym
+    return `${label}（${count}件）`
+  }
 
   return (
     <Card sx={{ height: '100%' }}>
@@ -310,7 +354,55 @@ const EventList: React.FC<Props> = ({ eventDetails, events, isLoading, error, to
                 )}
                 <Collapse in={showUpcoming}>
                   <Stack spacing={1.0} mt={0.5}>
-                    {upcomingEvents.map((ev) => renderEventRow(ev))}
+                    {upcomingGroups.map((group) => {
+                      const isOpen = openMonths[group.ym] ?? false
+                      return (
+                        <Box key={group.ym}>
+                          <Box
+                            sx={(theme) => ({
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              px: 0.4,
+                              py: 0.2,
+                              color: theme.palette.text.secondary,
+                              borderRadius: 1,
+                              cursor: 'pointer',
+                              '&:hover': {
+                                bgcolor:
+                                  theme.palette.mode === 'dark'
+                                    ? 'rgba(255, 255, 255, 0.06)'
+                                    : 'rgba(0, 0, 0, 0.04)',
+                              },
+                            })}
+                            onClick={() =>
+                              setOpenMonths((prev) => ({
+                                ...prev,
+                                [group.ym]: !isOpen,
+                              }))
+                            }
+                          >
+                            <Typography variant="subtitle2">
+                              {formatMonthHeader(group.ym, group.items.length)}
+                            </Typography>
+                            <IconButton
+                              size="small"
+                              sx={{
+                                transform: isOpen ? 'rotate(180deg)' : 'rotate(0deg)',
+                                transition: 'transform 0.15s ease-out',
+                              }}
+                            >
+                              <ExpandMoreIcon fontSize="small" />
+                            </IconButton>
+                          </Box>
+                          <Collapse in={isOpen}>
+                            <Stack spacing={1.0} mt={0.5}>
+                              {group.items.map((ev) => renderEventRow(ev))}
+                            </Stack>
+                          </Collapse>
+                        </Box>
+                      )
+                    })}
                   </Stack>
                 </Collapse>
               </>
@@ -338,12 +430,6 @@ const EventList: React.FC<Props> = ({ eventDetails, events, isLoading, error, to
             )}
 
             <Divider sx={{ my: 1.5 }} />
-
-            <Typography variant="caption" color="text.secondary">
-              「手動」はあなたが JSON に登録した正確な日付、「推定」はカレンダー規則から算出したおおよその日付です。
-              手動登録されたイベントがある場合は、同じ日付・同じイベント名の推定イベントよりも優先して表示されています。
-              過去のイベントはグレーアウトされ、必要に応じて折りたたむことができます。
-            </Typography>
           </>
         )}
       </CardContent>
