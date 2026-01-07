@@ -7,7 +7,8 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
-from scoring.technical import calculate_technical_score
+from scoring.technical import calculate_technical_score, calculate_ultra_long_mas
+# 超長期(500/1000日)MA評価：暴落局面でのみ連続的にスコア減衰させる内部ロジック
 from scoring.macro import calculate_macro_score
 from scoring.events import calculate_event_adjustment
 from scoring.total_score import calculate_total_score, get_label
@@ -213,7 +214,18 @@ def _build_snapshot(index_type: IndexType = IndexType.SP500):
     events = event_service.get_events()
     event_adjustment, event_details = calculate_event_adjustment(date.today(), events)
 
-    total_score = calculate_total_score(technical_score, macro_score, event_adjustment)
+    # 超長期ガードに必要なMAのみ内部で計算（APIに露出しない）
+    price_history = snapshot["price_history"]
+    ma500, ma1000 = calculate_ultra_long_mas(price_history)
+    guard_price = price_history[-1][1]
+    total_score = calculate_total_score(
+        technical_score,
+        macro_score,
+        event_adjustment,
+        current_price=guard_price,
+        ma500=ma500,
+        ma1000=ma1000,
+    )
     label = get_label(total_score)
 
     snapshot = {
@@ -303,7 +315,18 @@ def _evaluate(position: PositionRequest):
     )
     macro_score = snapshot["scores"]["macro"]
     event_adjustment = snapshot["scores"]["event_adjustment"]
-    total_score = calculate_total_score(technical_score, macro_score, event_adjustment)
+    # 超長期ガードに必要なMAのみ内部で計算（APIに露出しない）
+    price_history = snapshot["price_history"]
+    ma500, ma1000 = calculate_ultra_long_mas(price_history)
+    guard_price = price_history[-1][1]
+    total_score = calculate_total_score(
+        technical_score,
+        macro_score,
+        event_adjustment,
+        current_price=guard_price,
+        ma500=ma500,
+        ma1000=ma1000,
+    )
     label = get_label(total_score)
 
     market_value = position.total_quantity * current_price
