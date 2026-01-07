@@ -1,4 +1,7 @@
-from typing import List, Tuple
+from typing import List, Optional, Tuple
+
+ULTRA_LONG_ATTENUATION_FLOOR = 0.6
+ULTRA_LONG_ATTENUATION_SLOPE = 1.5
 
 
 def moving_average(prices: List[float], window: int) -> List[float]:
@@ -9,6 +12,41 @@ def moving_average(prices: List[float], window: int) -> List[float]:
         window_prices = prices[i - window + 1 : i + 1]
         ma_values.append(sum(window_prices) / window)
     return ma_values
+
+
+def latest_moving_average(prices: List[float], window: int) -> Optional[float]:
+    if len(prices) < window:
+        return None
+    return sum(prices[-window:]) / window
+
+
+def calculate_ultra_long_mas(price_history: List[Tuple[str, float]]) -> Tuple[Optional[float], Optional[float]]:
+    closes = [p[1] for p in price_history]
+    ma500 = latest_moving_average(closes, 500)
+    ma1000 = latest_moving_average(closes, 1000)
+    return ma500, ma1000
+
+
+def below_ratio(price: float, ma: Optional[float]) -> Optional[float]:
+    if ma is None or ma == 0:
+        return None
+    if price >= ma:
+        return 0.0
+    return (ma - price) / ma
+
+
+def calculate_ultra_long_attenuation(
+    price: float,
+    ma500: Optional[float],
+    ma1000: Optional[float],
+) -> Optional[float]:
+    dd500 = below_ratio(price, ma500)
+    dd1000 = below_ratio(price, ma1000)
+    if dd500 is None or dd1000 is None:
+        return None
+    ultra_dd = max(dd500, dd1000)
+    attenuation = 1.0 - ultra_dd * ULTRA_LONG_ATTENUATION_SLOPE
+    return max(ULTRA_LONG_ATTENUATION_FLOOR, attenuation)
 
 
 def clip(value: float, lower: float = 0.0, upper: float = 100.0) -> float:
