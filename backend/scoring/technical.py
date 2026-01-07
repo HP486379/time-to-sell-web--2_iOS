@@ -1,7 +1,5 @@
 from typing import List, Optional, Tuple
 
-ULTRA_LONG_WEIGHT_500 = 0.4
-ULTRA_LONG_WEIGHT_1000 = 0.6
 ULTRA_LONG_ATTENUATION_FLOOR = 0.6
 ULTRA_LONG_ATTENUATION_SLOPE = 1.5
 
@@ -46,7 +44,7 @@ def calculate_ultra_long_attenuation(
     dd1000 = below_ratio(price, ma1000)
     if dd500 is None or dd1000 is None:
         return None
-    ultra_dd = ULTRA_LONG_WEIGHT_500 * dd500 + ULTRA_LONG_WEIGHT_1000 * dd1000
+    ultra_dd = max(dd500, dd1000)
     attenuation = 1.0 - ultra_dd * ULTRA_LONG_ATTENUATION_SLOPE
     return max(ULTRA_LONG_ATTENUATION_FLOOR, attenuation)
 

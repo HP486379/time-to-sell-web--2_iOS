@@ -198,56 +198,79 @@ def get_fund_nav():
 # ======================
 
 def _build_snapshot(index_type: IndexType = IndexType.SP500):
-    price_history = market_service.get_price_history(index_type=index_type.value)
-    market_service.get_current_price(price_history, index_type=index_type.value)
-    market_service.get_usd_jpy()
-
-    if index_type == IndexType.SP500:
-        fund_nav = nav_service.get_official_nav() or nav_service.get_synthetic_nav()
-        current_price = fund_nav["navJpy"]
-    else:
-        current_price = price_history[-1][1]
-
-    technical_score, technical_details = calculate_technical_score(price_history)
-    macro_data = macro_service.get_macro_series()
-    macro_score, macro_details = calculate_macro_score(
-        macro_data["r_10y"], macro_data["cpi"], macro_data["vix"]
-    )
-
-    # ★ここがあなたの赤枠（/api/events）系の根っこ：イベント取得→補正
-    events = event_service.get_events()
-    event_adjustment, event_details = calculate_event_adjustment(date.today(), events)
-
-    # 超長期ガードに必要なMAのみ内部で計算（APIに露出しない）
-    price_history = snapshot["price_history"]
-    ma500, ma1000 = calculate_ultra_long_mas(price_history)
-    guard_price = price_history[-1][1]
-    total_score = calculate_total_score(
-        technical_score,
-        macro_score,
-        event_adjustment,
-        current_price=guard_price,
-        ma500=ma500,
-        ma1000=ma1000,
-    )
-    label = get_label(total_score)
-
     snapshot = {
-        "current_price": current_price,
+        "current_price": 0.0,
         "scores": {
-            "technical": technical_score,
-            "macro": macro_score,
-            "event_adjustment": event_adjustment,
-            "total": total_score,
-            "label": label,
+            "technical": 0.0,
+            "macro": 0.0,
+            "event_adjustment": 0.0,
+            "total": 0.0,
+            "label": get_label(0.0),
         },
-        "technical_details": technical_details,
-        "macro_details": macro_details,
-        "event_details": event_details,
-        "price_history": price_history,
-        "price_series": market_service.build_price_series_with_ma(price_history),
+        "technical_details": {},
+        "macro_details": {},
+        "event_details": {},
+        "price_history": [],
+        "price_series": [],
     }
 
+    try:
+        price_history = market_service.get_price_history(index_type=index_type.value)
+        if not price_history:
+            logger.warning("[snapshot] empty price history for %s", index_type.value)
+            return snapshot
+
+        market_service.get_current_price(price_history, index_type=index_type.value)
+        market_service.get_usd_jpy()
+
+        if index_type == IndexType.SP500:
+            fund_nav = nav_service.get_official_nav() or nav_service.get_synthetic_nav()
+            current_price = fund_nav["navJpy"]
+        else:
+            current_price = price_history[-1][1]
+
+        technical_score, technical_details = calculate_technical_score(price_history)
+        macro_data = macro_service.get_macro_series()
+        macro_score, macro_details = calculate_macro_score(
+            macro_data["r_10y"], macro_data["cpi"], macro_data["vix"]
+        )
+
+        # ★ここがあなたの赤枠（/api/events）系の根っこ：イベント取得→補正
+        events = event_service.get_events()
+        event_adjustment, event_details = calculate_event_adjustment(date.today(), events)
+
+        # 超長期ガードに必要なMAのみ内部で計算（APIに露出しない）
+        ma500, ma1000 = calculate_ultra_long_mas(price_history)
+        guard_price = price_history[-1][1]
+        total_score = calculate_total_score(
+            technical_score,
+            macro_score,
+            event_adjustment,
+            current_price=guard_price,
+            ma500=ma500,
+            ma1000=ma1000,
+        )
+        label = get_label(total_score)
+
+        snapshot.update(
+            {
+                "current_price": current_price,
+                "scores": {
+                    "technical": technical_score,
+                    "macro": macro_score,
+                    "event_adjustment": event_adjustment,
+                    "total": total_score,
+                    "label": label,
+                },
+                "technical_details": technical_details,
+                "macro_details": macro_details,
+                "event_details": event_details,
+                "price_history": price_history,
+                "price_series": market_service.build_price_series_with_ma(price_history),
+            }
+        )
+    except Exception:
+        logger.exception("[snapshot] failed to build snapshot for %s", index_type.value)
     return snapshot
 
 
@@ -313,6 +336,23 @@ def get_cached_snapshot(index_type: IndexType = IndexType.SP500):
 def _evaluate(position: PositionRequest):
     snapshot = get_cached_snapshot(position.index_type)
     current_price = snapshot["current_price"]
+    if not snapshot.get("price_history"):
+        return {
+            "current_price": current_price,
+            "market_value": 0.0,
+            "unrealized_pnl": 0.0,
+            "scores": {
+                "technical": 0.0,
+                "macro": snapshot.get("scores", {}).get("macro", 0.0),
+                "event_adjustment": snapshot.get("scores", {}).get("event_adjustment", 0.0),
+                "total": snapshot.get("scores", {}).get("total", 0.0),
+                "label": snapshot.get("scores", {}).get("label", get_label(0.0)),
+            },
+            "technical_details": snapshot.get("technical_details", {}),
+            "macro_details": snapshot.get("macro_details", {}),
+            "event_details": snapshot.get("event_details", {}),
+            "price_series": snapshot.get("price_series", []),
+        }
 
     technical_score, technical_details = calculate_technical_score(
         snapshot["price_history"], base_window=position.score_ma
