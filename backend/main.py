@@ -27,7 +27,11 @@ app = FastAPI(title="S&P500 Timing API")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "https://time-to-sell-web-2.vercel.app",
+        "http://localhost:5173",
+    ],
+    allow_origin_regex=r"^https://.*\.vercel\.app$",
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
