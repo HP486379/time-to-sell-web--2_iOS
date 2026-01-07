@@ -283,28 +283,16 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
       >
         <Typography variant="caption" sx={{ display: 'block', lineHeight: 1.5 }}>
           ⚠ 本サービスは投資助言ではありません。表示されるスコアは参考情報であり、最終的な投資判断はご自身の責任で行ってください。
+          <br />
+          <Box
+            component="span"
+            sx={{
+              color: (theme) => (theme.palette.mode === 'dark' ? 'rgba(221, 221, 221, 0.7)' : 'rgba(68, 68, 68, 0.7)'),
+            }}
+          >
+            ※ ページ更新や条件切り替え時、最新データの取得・計算のため表示が反映されるまで数秒かかる場合があります。
+          </Box>
         </Typography>
-        <Typography
-          variant="caption"
-          sx={{
-            display: 'block',
-            lineHeight: 1.5,
-            color: (theme) => (theme.palette.mode === 'dark' ? 'rgba(221, 221, 221, 0.7)' : 'rgba(68, 68, 68, 0.7)'),
-          }}
-        >
-          ※ ページ更新や条件切り替え時、最新データの取得・計算のため表示が反映されるまで数秒かかる場合があります。
-        </Typography>
-      </Box>
-      <Box
-        sx={{
-          width: '100%',
-          color: (theme) => (theme.palette.mode === 'dark' ? 'rgba(221, 221, 221, 0.7)' : 'rgba(68, 68, 68, 0.7)'),
-          fontSize: '12px',
-          px: 2,
-          mt: -1.5,
-        }}
-      >
-        ※ ページ更新や条件切り替え時、最新データの取得・計算のため表示が反映されるまで数秒かかる場合があります。
       </Box>
       <Box display="flex" justifyContent="space-between" alignItems="center" gap={1} flexWrap="wrap">
         <FormControl size="small" sx={{ minWidth: 200 }}>
