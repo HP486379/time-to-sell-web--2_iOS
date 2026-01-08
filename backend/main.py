@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from scoring.technical import calculate_technical_score, calculate_ultra_long_mas
-# 超長期(500/1000日)MA評価：暴落局面でのみ連続的にスコア減衰させる内部ロジック
+# 超長期(500/1000日)MA評価：暴落局面でのみ連続的にスコア減衰させる内部ロジック（API/UIには露出しない）
 from scoring.macro import calculate_macro_score
 from scoring.events import calculate_event_adjustment
 from scoring.total_score import calculate_total_score, get_label
@@ -280,7 +280,8 @@ def _build_snapshot(index_type: IndexType = IndexType.SP500):
 
 @app.get("/api/sp500/price-history", response_model=List[PricePoint])
 def get_sp500_history():
-    return get_cached_snapshot(IndexType.SP500)["price_series"]
+    snapshot = get_cached_snapshot(IndexType.SP500)
+    return snapshot.get("price_series", [])
 
 
 @app.get("/api/topix/price-history", response_model=List[PricePoint])
@@ -350,7 +351,10 @@ def _evaluate(position: PositionRequest):
             },
             "technical_details": snapshot.get("technical_details", {}),
             "macro_details": snapshot.get("macro_details", {}),
-            "event_details": snapshot.get("event_details", {}),
+            "event_details": {
+                **snapshot.get("event_details", {}),
+                "warning": "price history unavailable; returning safe fallback",
+            },
             "price_series": snapshot.get("price_series", []),
         }
 
