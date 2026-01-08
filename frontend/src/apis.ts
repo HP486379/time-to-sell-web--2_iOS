@@ -37,6 +37,7 @@ export interface EventItem {
   importance: number
   date: string // ISO形式 "2025-01-29"
   source?: 'manual' | 'heuristic' | string
+  description?: string
   // 将来フィールド追加されても壊れないようにしておく
   [key: string]: unknown
 }

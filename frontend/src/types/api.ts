@@ -12,6 +12,7 @@ export interface EconomicEvent {
   importance: number
   date: string
   source?: string
+  description?: string
 }
 
 export interface PricePoint {
