@@ -13,6 +13,7 @@ from scoring.macro import calculate_macro_score
 from scoring.events import calculate_event_adjustment
 from scoring.total_score import calculate_total_score, get_label
 from services.sp500_market_service import SP500MarketService
+from services.price_history_service import PriceHistoryService, PriceHistoryFetchError
 from services.macro_data_service import MacroDataService
 from services.event_service import EventService
 from services.nav_service import FundNavService
@@ -141,6 +142,7 @@ class BacktestResponse(BaseModel):
 logger = logging.getLogger(__name__)
 
 market_service = SP500MarketService()
+price_history_service = PriceHistoryService(market_service, ttl=timedelta(minutes=15))
 macro_service = MacroDataService()
 event_service = EventService()          # ← ここは必ず EventService()
 nav_service = FundNavService()
@@ -197,6 +199,32 @@ def get_fund_nav():
 # Snapshot Builder
 # ======================
 
+def _price_history_range():
+    today = date.today()
+    return today - timedelta(days=365 * 5), today
+
+
+def _get_price_history(index_type: IndexType):
+    start, end = _price_history_range()
+    return price_history_service.get_history(index_type.value, start, end)
+
+
+def _get_price_series(index_type: IndexType):
+    price_history = _get_price_history(index_type)
+    return market_service.build_price_series_with_ma(price_history)
+
+
+def _get_price_series_or_503(index_type: IndexType):
+    try:
+        return _get_price_series(index_type)
+    except PriceHistoryFetchError as exc:
+        logger.error("[price-history] failed index=%s error=%s", index_type.value, exc)
+        raise HTTPException(
+            status_code=503,
+            detail={"reason": f"price history unavailable for {index_type.value}"},
+        ) from exc
+
+
 def _build_snapshot(index_type: IndexType = IndexType.SP500):
     snapshot = {
         "current_price": 0.0,
@@ -215,7 +243,7 @@ def _build_snapshot(index_type: IndexType = IndexType.SP500):
     }
 
     try:
-        price_history = market_service.get_price_history(index_type=index_type.value)
+        price_history = _get_price_history(index_type)
         if not price_history:
             logger.warning("[snapshot] empty price history for %s", index_type.value)
             return snapshot
@@ -269,6 +297,9 @@ def _build_snapshot(index_type: IndexType = IndexType.SP500):
                 "price_series": market_service.build_price_series_with_ma(price_history),
             }
         )
+    except PriceHistoryFetchError:
+        logger.exception("[snapshot] price history unavailable for %s", index_type.value)
+        raise
     except Exception:
         logger.exception("[snapshot] failed to build snapshot for %s", index_type.value)
     return snapshot
@@ -280,38 +311,37 @@ def _build_snapshot(index_type: IndexType = IndexType.SP500):
 
 @app.get("/api/sp500/price-history", response_model=List[PricePoint])
 def get_sp500_history():
-    snapshot = get_cached_snapshot(IndexType.SP500)
-    return snapshot.get("price_series", [])
+    return _get_price_series_or_503(IndexType.SP500)
 
 
 @app.get("/api/topix/price-history", response_model=List[PricePoint])
 def get_topix_history():
-    return get_cached_snapshot(IndexType.TOPIX)["price_series"]
+    return _get_price_series_or_503(IndexType.TOPIX)
 
 
 @app.get("/api/nikkei/price-history", response_model=List[PricePoint])
 def get_nikkei_history():
-    return get_cached_snapshot(IndexType.NIKKEI)["price_series"]
+    return _get_price_series_or_503(IndexType.NIKKEI)
 
 
 @app.get("/api/nifty50/price-history", response_model=List[PricePoint])
 def get_nifty_history():
-    return get_cached_snapshot(IndexType.NIFTY50)["price_series"]
+    return _get_price_series_or_503(IndexType.NIFTY50)
 
 
 @app.get("/api/orukan/price-history", response_model=List[PricePoint])
 def get_orukan_history():
-    return get_cached_snapshot(IndexType.ORUKAN)["price_series"]
+    return _get_price_series_or_503(IndexType.ORUKAN)
 
 
 @app.get("/api/orukan-jpy/price-history", response_model=List[PricePoint])
 def get_orukan_jpy_history():
-    return get_cached_snapshot(IndexType.ORUKAN_JPY)["price_series"]
+    return _get_price_series_or_503(IndexType.ORUKAN_JPY)
 
 
 @app.get("/api/sp500-jpy/price-history", response_model=List[PricePoint])
 def get_sp500_jpy_history():
-    return get_cached_snapshot(IndexType.SP500_JPY)["price_series"]
+    return _get_price_series_or_503(IndexType.SP500_JPY)
 
 
 # ======================
@@ -335,28 +365,26 @@ def get_cached_snapshot(index_type: IndexType = IndexType.SP500):
 # ======================
 
 def _evaluate(position: PositionRequest):
-    snapshot = get_cached_snapshot(position.index_type)
+    logger.info(
+        "[evaluate] start index=%s score_ma=%s",
+        position.index_type.value,
+        position.score_ma,
+    )
+    try:
+        snapshot = get_cached_snapshot(position.index_type)
+    except PriceHistoryFetchError as exc:
+        logger.error("[evaluate] price history unavailable index=%s error=%s", position.index_type.value, exc)
+        raise HTTPException(
+            status_code=503,
+            detail={"reason": f"price history unavailable for {position.index_type.value}"},
+        ) from exc
     current_price = snapshot["current_price"]
     if not snapshot.get("price_history"):
-        return {
-            "current_price": current_price,
-            "market_value": 0.0,
-            "unrealized_pnl": 0.0,
-            "scores": {
-                "technical": 0.0,
-                "macro": snapshot.get("scores", {}).get("macro", 0.0),
-                "event_adjustment": snapshot.get("scores", {}).get("event_adjustment", 0.0),
-                "total": snapshot.get("scores", {}).get("total", 0.0),
-                "label": snapshot.get("scores", {}).get("label", get_label(0.0)),
-            },
-            "technical_details": snapshot.get("technical_details", {}),
-            "macro_details": snapshot.get("macro_details", {}),
-            "event_details": {
-                **snapshot.get("event_details", {}),
-                "warning": "price history unavailable; returning safe fallback",
-            },
-            "price_series": snapshot.get("price_series", []),
-        }
+        logger.error("[evaluate] empty price history index=%s", position.index_type.value)
+        raise HTTPException(
+            status_code=503,
+            detail={"reason": f"price history unavailable for {position.index_type.value}"},
+        )
 
     technical_score, technical_details = calculate_technical_score(
         snapshot["price_history"], base_window=position.score_ma
@@ -376,6 +404,11 @@ def _evaluate(position: PositionRequest):
         ma1000=ma1000,
     )
     label = get_label(total_score)
+    logger.info(
+        "[evaluate] price history ready index=%s points=%d",
+        position.index_type.value,
+        len(snapshot["price_history"]),
+    )
 
     market_value = position.total_quantity * current_price
     unrealized_pnl = market_value - (position.total_quantity * position.avg_cost)

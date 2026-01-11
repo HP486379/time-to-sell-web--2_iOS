@@ -50,6 +50,7 @@ export interface EvaluateResponse {
     R_max: number
     effective_event: EconomicEvent | null
     events?: EconomicEvent[]
+    warning?: string
   }
   price_series: PricePoint[]
 }
