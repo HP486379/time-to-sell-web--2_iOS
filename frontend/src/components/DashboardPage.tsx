@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Grid,
   Card,
@@ -97,6 +97,8 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
   const [priceDisplayMode, setPriceDisplayMode] = useState<PriceDisplayMode>('normalized')
   const [positionDialogOpen, setPositionDialogOpen] = useState(false)
   const [priceSeriesMap, setPriceSeriesMap] = useState<Partial<Record<IndexType, PricePoint[]>>>({})
+  const priceReqSeqRef = useRef(0)
+  const evalReqSeqRef = useRef(0)
 
   // ★ 追加：イベント用 state
   const [events, setEvents] = useState<EventItem[]>([])
@@ -124,15 +126,18 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
     payload?: Partial<EvaluateRequest>,
     markPrimary = false,
   ) => {
+    const reqSeq = ++evalReqSeqRef.current
     try {
       const body = { ...lastRequest, ...(payload ?? {}), index_type: targetIndex }
       if (markPrimary) setError(null)
       const res = await apiClient.post<EvaluateResponse>('/api/evaluate', body)
+      if (reqSeq !== evalReqSeqRef.current) return
       setResponses((prev) => ({ ...prev, [targetIndex]: res.data }))
       if (targetIndex === indexType && payload)
         setLastRequest((prev) => ({ ...prev, ...payload, index_type: targetIndex }))
       if (markPrimary) setLastUpdated(new Date())
     } catch (e: any) {
+      if (reqSeq !== evalReqSeqRef.current) return
       if (markPrimary) {
         setError(e.message)
       } else {
@@ -155,9 +160,12 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
   }
 
   const fetchPriceSeries = async (targetIndex: IndexType) => {
+    const reqSeq = ++priceReqSeqRef.current
     try {
       const res = await apiClient.get<PricePoint[]>(getPriceHistoryEndpoint(targetIndex))
-      setPriceSeriesMap((prev) => ({ ...prev, [targetIndex]: res.data }))
+      if (reqSeq !== priceReqSeqRef.current) return
+      const sorted = [...res.data].sort((a, b) => a.date.localeCompare(b.date))
+      setPriceSeriesMap((prev) => ({ ...prev, [targetIndex]: sorted }))
     } catch (e: any) {
       console.error('価格履歴取得に失敗しました', e)
     }
@@ -486,7 +494,7 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
               >
                 <PriceChart
                   priceSeries={chartSeries}
-                  simple={displayMode === 'simple'} // proのみ描画なので実質false（互換維持）
+                  simple={false} // proのみ描画なので実質false（互換維持）
                   tooltips={tooltipTexts}
                   legendLabels={legendLabels}
                 />
