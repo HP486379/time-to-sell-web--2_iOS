@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Grid,
   Card,
@@ -97,6 +97,10 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
   const [priceDisplayMode, setPriceDisplayMode] = useState<PriceDisplayMode>('normalized')
   const [positionDialogOpen, setPositionDialogOpen] = useState(false)
   const [priceSeriesMap, setPriceSeriesMap] = useState<Partial<Record<IndexType, PricePoint[]>>>({})
+  const [isEvalRetrying, setIsEvalRetrying] = useState(false)
+  const priceReqSeqRef = useRef(0)
+  const evalReqSeqRef = useRef(0)
+  const evalRetryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // ★ 追加：イベント用 state
   const [events, setEvents] = useState<EventItem[]>([])
@@ -119,21 +123,73 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
     return '1y'
   }
 
+  const EVAL_RETRY_DELAYS_MS = [500, 1500, 3000]
+
+  const shouldRetryEvaluation = (data: EvaluateResponse) => {
+    if (!data.price_series || data.price_series.length === 0) return true
+    const warning = data.event_details?.warning
+    return typeof warning === 'string' && warning.includes('price history unavailable')
+  }
+
+  const scheduleEvalRetry = (
+    targetIndex: IndexType,
+    payload: Partial<EvaluateRequest> | undefined,
+    markPrimary: boolean,
+    retryCount: number,
+  ) => {
+    if (retryCount >= EVAL_RETRY_DELAYS_MS.length) return
+    if (evalRetryTimeoutRef.current) {
+      clearTimeout(evalRetryTimeoutRef.current)
+    }
+    evalRetryTimeoutRef.current = setTimeout(() => {
+      fetchEvaluation(targetIndex, payload, markPrimary, retryCount + 1)
+    }, EVAL_RETRY_DELAYS_MS[retryCount])
+  }
+
   const fetchEvaluation = async (
     targetIndex: IndexType,
     payload?: Partial<EvaluateRequest>,
     markPrimary = false,
+    retryCount = 0,
   ) => {
+    const reqSeq = ++evalReqSeqRef.current
     try {
       const body = { ...lastRequest, ...(payload ?? {}), index_type: targetIndex }
       if (markPrimary) setError(null)
       const res = await apiClient.post<EvaluateResponse>('/api/evaluate', body)
+      if (reqSeq !== evalReqSeqRef.current) return
+      if (shouldRetryEvaluation(res.data)) {
+        if (retryCount >= EVAL_RETRY_DELAYS_MS.length) {
+          if (markPrimary) {
+            setIsEvalRetrying(false)
+            setError('価格履歴の取得に失敗しました。時間をおいて再試行してください。')
+          }
+          return
+        }
+        if (markPrimary) setIsEvalRetrying(true)
+        scheduleEvalRetry(targetIndex, payload, markPrimary, retryCount)
+        return
+      }
       setResponses((prev) => ({ ...prev, [targetIndex]: res.data }))
       if (targetIndex === indexType && payload)
         setLastRequest((prev) => ({ ...prev, ...payload, index_type: targetIndex }))
       if (markPrimary) setLastUpdated(new Date())
+      if (markPrimary) setIsEvalRetrying(false)
     } catch (e: any) {
+      if (reqSeq !== evalReqSeqRef.current) return
+      const status = e?.response?.status
+      if (markPrimary && (status === 502 || status === 503)) {
+        if (retryCount >= EVAL_RETRY_DELAYS_MS.length) {
+          setIsEvalRetrying(false)
+          setError('価格履歴の取得に失敗しました。時間をおいて再試行してください。')
+          return
+        }
+        setIsEvalRetrying(true)
+        scheduleEvalRetry(targetIndex, payload, markPrimary, retryCount)
+        return
+      }
       if (markPrimary) {
+        setIsEvalRetrying(false)
         setError(e.message)
       } else {
         console.error('評価の取得に失敗しました', e)
@@ -155,9 +211,12 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
   }
 
   const fetchPriceSeries = async (targetIndex: IndexType) => {
+    const reqSeq = ++priceReqSeqRef.current
     try {
       const res = await apiClient.get<PricePoint[]>(getPriceHistoryEndpoint(targetIndex))
-      setPriceSeriesMap((prev) => ({ ...prev, [targetIndex]: res.data }))
+      if (reqSeq !== priceReqSeqRef.current) return
+      const sorted = [...res.data].sort((a, b) => a.date.localeCompare(b.date))
+      setPriceSeriesMap((prev) => ({ ...prev, [targetIndex]: sorted }))
     } catch (e: any) {
       console.error('価格履歴取得に失敗しました', e)
     }
@@ -185,26 +244,40 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
     fetchEvaluation(indexType, { score_ma: value }, true)
   }
 
-  const fetchAll = () => {
+  const fetchAll = async () => {
     const targets: IndexType[] = (() => {
       if (indexType === 'ORUKAN' || indexType === 'orukan_jpy') return ['ORUKAN', 'orukan_jpy']
       if (indexType === 'sp500_jpy') return ['SP500', 'sp500_jpy']
       return [indexType]
     })()
 
-    targets.forEach((target) => {
-      const isPrimary = target === indexType
-      fetchEvaluation(target, undefined, isPrimary)
-      fetchPriceSeries(target)
-    })
-    fetchNavs()
+    const primary = indexType
+    const secondaryTargets = targets.filter((target) => target !== primary)
+
+    await fetchPriceSeries(primary)
+    await fetchEvaluation(primary, undefined, true)
+
+    await Promise.all(
+      secondaryTargets.flatMap((target) => [fetchEvaluation(target), fetchPriceSeries(target)]),
+    )
+    await fetchNavs()
   }
 
   useEffect(() => {
-    fetchAll()
-    const id = setInterval(fetchAll, REFRESH_INTERVAL_MS)
+    void fetchAll()
+    const id = setInterval(() => {
+      void fetchAll()
+    }, REFRESH_INTERVAL_MS)
     return () => clearInterval(id)
   }, [lastRequest, indexType])
+
+  useEffect(() => {
+    return () => {
+      if (evalRetryTimeoutRef.current) {
+        clearTimeout(evalRetryTimeoutRef.current)
+      }
+    }
+  }, [])
 
   const lastUpdatedLabel = useMemo(() => {
     if (!lastUpdated) return '未更新'
@@ -355,8 +428,13 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
 
         <Box display="flex" alignItems="center" gap={1}>
           <Chip label={`最終更新: ${lastUpdatedLabel}`} size="small" />
+          {isEvalRetrying && (
+            <Typography variant="caption" color="text.secondary">
+              データ取得中…
+            </Typography>
+          )}
           <Tooltip title="最新データを取得" arrow>
-            <IconButton color="primary" onClick={() => fetchAll()}>
+            <IconButton color="primary" onClick={() => void fetchAll()}>
               <RefreshIcon />
             </IconButton>
           </Tooltip>
@@ -486,7 +564,7 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
               >
                 <PriceChart
                   priceSeries={chartSeries}
-                  simple={displayMode === 'simple'} // proのみ描画なので実質false（互換維持）
+                  simple={false} // proのみ描画なので実質false（互換維持）
                   tooltips={tooltipTexts}
                   legendLabels={legendLabels}
                 />
