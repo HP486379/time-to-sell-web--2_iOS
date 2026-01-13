@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Grid,
   Card,
@@ -70,6 +70,7 @@ const REFRESH_INTERVAL_MS = 5 * 60 * 1000
 type DisplayMode = 'pro' | 'simple'
 type StartOption = '1m' | '3m' | '6m' | '1y' | '3y' | '5y' | 'max' | 'custom'
 type PriceDisplayMode = 'normalized' | 'actual'
+type EvalStatus = 'loading' | 'ready' | 'degraded' | 'error' | 'refreshing'
 
 const motionVariants = {
   initial: { opacity: 0, y: -10 },
@@ -97,6 +98,12 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
   const [priceDisplayMode, setPriceDisplayMode] = useState<PriceDisplayMode>('normalized')
   const [positionDialogOpen, setPositionDialogOpen] = useState(false)
   const [priceSeriesMap, setPriceSeriesMap] = useState<Partial<Record<IndexType, PricePoint[]>>>({})
+  const [isEvalRetrying, setIsEvalRetrying] = useState(false)
+  const [evalStatusMap, setEvalStatusMap] = useState<Partial<Record<IndexType, EvalStatus>>>({})
+  const [evalReasonsMap, setEvalReasonsMap] = useState<Partial<Record<IndexType, string[]>>>({})
+  const priceReqSeqRef = useRef(0)
+  const evalReqSeqRef = useRef(0)
+  const evalRetryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // ★ 追加：イベント用 state
   const [events, setEvents] = useState<EventItem[]>([])
@@ -109,7 +116,11 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
   )
 
   const response = responses[indexType] ?? null
-  const totalScore = response?.scores?.total
+  const evalStatus = evalStatusMap[indexType] ?? (response ? 'ready' : 'loading')
+  const evalReasons = evalReasonsMap[indexType] ?? []
+  const showScores = evalStatus === 'ready' || evalStatus === 'refreshing'
+  const displayResponse = showScores ? response : null
+  const totalScore = displayResponse?.scores?.total
   const priceSeries = priceSeriesMap[indexType] ?? []
 
   // ★ MA(20/60/200) → チャート開始時点(1m/3m/1y)へのマッピング
@@ -119,22 +130,102 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
     return '1y'
   }
 
+  const EVAL_RETRY_DELAYS_MS = [1500, 3000, 6000]
+
+  const resolveEvalStatus = (data: EvaluateResponse): EvalStatus => {
+    if (data.status) return data.status
+    if (!data.price_series || data.price_series.length === 0) return 'degraded'
+    const warning = data.event_details?.warning
+    if (typeof warning === 'string' && warning.includes('price history unavailable')) return 'degraded'
+    return 'ready'
+  }
+
+  const scheduleEvalRetry = (
+    targetIndex: IndexType,
+    payload: Partial<EvaluateRequest> | undefined,
+    markPrimary: boolean,
+    retryCount: number,
+  ) => {
+    if (retryCount >= EVAL_RETRY_DELAYS_MS.length) return
+    if (evalRetryTimeoutRef.current) {
+      clearTimeout(evalRetryTimeoutRef.current)
+    }
+    evalRetryTimeoutRef.current = setTimeout(() => {
+      fetchEvaluation(targetIndex, payload, markPrimary, retryCount + 1)
+    }, EVAL_RETRY_DELAYS_MS[retryCount])
+  }
+
   const fetchEvaluation = async (
     targetIndex: IndexType,
     payload?: Partial<EvaluateRequest>,
     markPrimary = false,
+    retryCount = 0,
   ) => {
+    const reqSeq = ++evalReqSeqRef.current
     try {
       const body = { ...lastRequest, ...(payload ?? {}), index_type: targetIndex }
-      if (markPrimary) setError(null)
+      if (markPrimary) {
+        setError(null)
+        if (retryCount === 0) {
+          setEvalStatusMap((prev) => ({
+            ...prev,
+            [targetIndex]: response ? 'refreshing' : 'loading',
+          }))
+        }
+      }
       const res = await apiClient.post<EvaluateResponse>('/api/evaluate', body)
+      if (reqSeq !== evalReqSeqRef.current) return
+      const status = resolveEvalStatus(res.data)
+      const reasons = res.data.reasons ?? []
+      if (markPrimary) {
+        setEvalStatusMap((prev) => ({ ...prev, [targetIndex]: status }))
+        setEvalReasonsMap((prev) => ({ ...prev, [targetIndex]: reasons }))
+      }
+
+      if (status === 'degraded') {
+        if (!markPrimary) return
+        if (retryCount >= EVAL_RETRY_DELAYS_MS.length) {
+          setIsEvalRetrying(false)
+          setEvalStatusMap((prev) => ({ ...prev, [targetIndex]: 'error' }))
+          setError('価格履歴が未確定のためスコアを表示できません。再取得してください。')
+          return
+        }
+        setIsEvalRetrying(true)
+        scheduleEvalRetry(targetIndex, payload, markPrimary, retryCount)
+        return
+      }
+
+      if (status === 'error') {
+        if (markPrimary) {
+          setIsEvalRetrying(false)
+          setError('評価データの取得に失敗しました。再取得してください。')
+        }
+        return
+      }
+
       setResponses((prev) => ({ ...prev, [targetIndex]: res.data }))
       if (targetIndex === indexType && payload)
         setLastRequest((prev) => ({ ...prev, ...payload, index_type: targetIndex }))
-      if (markPrimary) setLastUpdated(new Date())
-    } catch (e: any) {
       if (markPrimary) {
-        setError(e.message)
+        setLastUpdated(new Date())
+        setIsEvalRetrying(false)
+        setEvalStatusMap((prev) => ({ ...prev, [targetIndex]: 'ready' }))
+        setEvalReasonsMap((prev) => ({ ...prev, [targetIndex]: [] }))
+      }
+    } catch (e: any) {
+      if (reqSeq !== evalReqSeqRef.current) return
+      const status = e?.response?.status
+      if (markPrimary) {
+        setIsEvalRetrying(false)
+        setEvalStatusMap((prev) => ({ ...prev, [targetIndex]: 'error' }))
+        setEvalReasonsMap((prev) => ({ ...prev, [targetIndex]: ['PRICE_HISTORY_UNAVAILABLE'] }))
+      }
+      if (markPrimary) {
+        setError(
+          status === 502 || status === 503
+            ? '価格履歴の取得に失敗しました。再取得してください。'
+            : e.message,
+        )
       } else {
         console.error('評価の取得に失敗しました', e)
       }
@@ -155,9 +246,12 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
   }
 
   const fetchPriceSeries = async (targetIndex: IndexType) => {
+    const reqSeq = ++priceReqSeqRef.current
     try {
       const res = await apiClient.get<PricePoint[]>(getPriceHistoryEndpoint(targetIndex))
-      setPriceSeriesMap((prev) => ({ ...prev, [targetIndex]: res.data }))
+      if (reqSeq !== priceReqSeqRef.current) return
+      const sorted = [...res.data].sort((a, b) => a.date.localeCompare(b.date))
+      setPriceSeriesMap((prev) => ({ ...prev, [targetIndex]: sorted }))
     } catch (e: any) {
       console.error('価格履歴取得に失敗しました', e)
     }
@@ -185,33 +279,47 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
     fetchEvaluation(indexType, { score_ma: value }, true)
   }
 
-  const fetchAll = () => {
+  const fetchAll = async () => {
     const targets: IndexType[] = (() => {
       if (indexType === 'ORUKAN' || indexType === 'orukan_jpy') return ['ORUKAN', 'orukan_jpy']
       if (indexType === 'sp500_jpy') return ['SP500', 'sp500_jpy']
       return [indexType]
     })()
 
-    targets.forEach((target) => {
-      const isPrimary = target === indexType
-      fetchEvaluation(target, undefined, isPrimary)
-      fetchPriceSeries(target)
-    })
-    fetchNavs()
+    const primary = indexType
+    const secondaryTargets = targets.filter((target) => target !== primary)
+
+    await fetchPriceSeries(primary)
+    await fetchEvaluation(primary, undefined, true)
+
+    await Promise.all(
+      secondaryTargets.flatMap((target) => [fetchEvaluation(target), fetchPriceSeries(target)]),
+    )
+    await fetchNavs()
   }
 
   useEffect(() => {
-    fetchAll()
-    const id = setInterval(fetchAll, REFRESH_INTERVAL_MS)
+    void fetchAll()
+    const id = setInterval(() => {
+      void fetchAll()
+    }, REFRESH_INTERVAL_MS)
     return () => clearInterval(id)
   }, [lastRequest, indexType])
+
+  useEffect(() => {
+    return () => {
+      if (evalRetryTimeoutRef.current) {
+        clearTimeout(evalRetryTimeoutRef.current)
+      }
+    }
+  }, [])
 
   const lastUpdatedLabel = useMemo(() => {
     if (!lastUpdated) return '未更新'
     return lastUpdated.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })
   }, [lastUpdated])
 
-  const highlights = useMemo(() => buildHighlights(response), [response])
+  const highlights = useMemo(() => buildHighlights(displayResponse), [displayResponse])
 
   const zoneText = useMemo(() => getScoreZoneText(totalScore), [totalScore])
 
@@ -285,9 +393,50 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
   ]
   const scoreMaDays = lastRequest.score_ma as ScoreMaDays
 
+  const reasonLabelMap: Record<string, string> = {
+    PRICE_HISTORY_EMPTY: '価格履歴が空です',
+    PRICE_HISTORY_SHORT: '価格履歴が短いため精度が低下しています',
+    PRICE_HISTORY_UNAVAILABLE: '価格履歴が取得できません',
+    TECHNICAL_FALLBACK_ZERO: 'テクニカル指標が未確定です',
+    TECHNICAL_CALC_ERROR: 'テクニカル計算に失敗しました',
+    MACRO_UNAVAILABLE: 'マクロ指標が取得できません',
+    EVENTS_UNAVAILABLE: 'イベント情報が取得できません',
+  }
+
+  const degradedMessage =
+    evalReasons.length > 0
+      ? evalReasons.map((reason) => reasonLabelMap[reason] ?? reason).join(' / ')
+      : 'データが未確定のためスコアを確定できません'
+
   return (
     <Stack spacing={3}>
-      {error && <Alert severity="error">{error}</Alert>}
+      {evalStatus === 'loading' && (
+        <Alert severity="info">計算中…</Alert>
+      )}
+      {evalStatus === 'degraded' && (
+        <Alert
+          severity="warning"
+          action={
+            <Button color="inherit" size="small" onClick={() => void fetchAll()}>
+              再取得
+            </Button>
+          }
+        >
+          {degradedMessage}
+        </Alert>
+      )}
+      {evalStatus === 'error' && (
+        <Alert
+          severity="error"
+          action={
+            <Button color="inherit" size="small" onClick={() => void fetchAll()}>
+              再取得
+            </Button>
+          }
+        >
+          {error ?? '評価データの取得に失敗しました。'}
+        </Alert>
+      )}
       <Box
         sx={{
           width: '100%',
@@ -355,8 +504,18 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
 
         <Box display="flex" alignItems="center" gap={1}>
           <Chip label={`最終更新: ${lastUpdatedLabel}`} size="small" />
+          {evalStatus === 'refreshing' && (
+            <Typography variant="caption" color="text.secondary">
+              更新中…
+            </Typography>
+          )}
+          {evalStatus === 'degraded' && isEvalRetrying && (
+            <Typography variant="caption" color="text.secondary">
+              再取得中…
+            </Typography>
+          )}
           <Tooltip title="最新データを取得" arrow>
-            <IconButton color="primary" onClick={() => fetchAll()}>
+            <IconButton color="primary" onClick={() => void fetchAll()}>
               <RefreshIcon />
             </IconButton>
           </Tooltip>
@@ -370,10 +529,10 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
               <>
                 <Grid item xs={12} md={7} sx={{ height: '100%' }}>
                   <Box sx={{ height: '100%' }}>
-                    <SimpleAlertCard
-                      scores={response?.scores}
-                      highlights={highlights}
-                      zoneText={zoneText}
+                  <SimpleAlertCard
+                    scores={displayResponse?.scores}
+                    highlights={highlights}
+                    zoneText={zoneText}
                       onShowDetails={() => setShowDetails((prev) => !prev)}
                       expanded={showDetails}
                       tooltips={tooltipTexts}
@@ -388,7 +547,7 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
                 <Grid item xs={12}>
                   <Collapse in={showDetails}>
                     <ScoreSummaryCard
-                      scores={response?.scores}
+                      scores={displayResponse?.scores}
                       highlights={highlights}
                       zoneText={zoneText}
                       onShowDetails={() => setShowDetails((prev) => !prev)}
@@ -402,9 +561,9 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
               <>
                 <Grid item xs={12} md={7} sx={{ height: '100%' }}>
                   <ScoreSummaryCard
-                    scores={response?.scores}
-                    technical={response?.technical_details}
-                    macro={response?.macro_details}
+                    scores={displayResponse?.scores}
+                    technical={displayResponse?.technical_details}
+                    macro={displayResponse?.macro_details}
                     tooltips={tooltipTexts}
                   />
                 </Grid>
@@ -486,7 +645,7 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
               >
                 <PriceChart
                   priceSeries={chartSeries}
-                  simple={displayMode === 'simple'} // proのみ描画なので実質false（互換維持）
+                  simple={false} // proのみ描画なので実質false（互換維持）
                   tooltips={tooltipTexts}
                   legendLabels={legendLabels}
                 />
@@ -514,12 +673,12 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
 
       <Grid container spacing={3}>
         <Grid item xs={12} md={7}>
-          <MacroCards macroDetails={response?.macro_details} tooltips={tooltipTexts} />
+          <MacroCards macroDetails={displayResponse?.macro_details} tooltips={tooltipTexts} />
         </Grid>
         <Grid item xs={12} md={5}>
           {/* ★ イベント一覧：旧 event_details に加えて /api/events の結果も渡す */}
           <EventList
-            eventDetails={response?.event_details}
+            eventDetails={displayResponse?.event_details}
             events={events}
             isLoading={isEventsLoading}
             error={eventsError}
@@ -546,8 +705,8 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
                   fetchEvaluation(indexType, req, true)
                   setPositionDialogOpen(false)
                 }}
-                marketValue={response?.market_value}
-                pnl={response?.unrealized_pnl}
+                marketValue={displayResponse?.market_value}
+                pnl={displayResponse?.unrealized_pnl}
                 syntheticNav={syntheticNav}
                 fundNav={fundNav}
                 tooltips={tooltipTexts}
