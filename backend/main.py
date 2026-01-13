@@ -1,4 +1,5 @@
 from datetime import date, datetime, time, timedelta, timezone
+import uuid
 from typing import List, Optional
 import logging
 from enum import Enum
@@ -80,6 +81,10 @@ class EvaluateResponse(BaseModel):
     current_price: float
     market_value: float
     unrealized_pnl: float
+    status: str
+    reasons: List[str]
+    as_of: str
+    request_id: str
     scores: dict
     technical_details: dict
     macro_details: dict
@@ -162,6 +167,7 @@ def to_jst_iso(value: date) -> str:
 _cache_ttl = timedelta(seconds=60)
 _cached_snapshot = {}
 _cached_at: dict[str, datetime] = {}
+MIN_PRICE_POINTS = 200
 
 
 # ======================
@@ -225,6 +231,19 @@ def _get_price_series_or_503(index_type: IndexType):
         ) from exc
 
 
+def _resolve_as_of(price_history: List[tuple[str, float]]) -> str:
+    if not price_history:
+        return datetime.now(timezone.utc).isoformat()
+    last_date = price_history[-1][0]
+    try:
+        parsed = datetime.fromisoformat(str(last_date))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.isoformat()
+    except ValueError:
+        return datetime.now(timezone.utc).isoformat()
+
+
 def _build_snapshot(index_type: IndexType = IndexType.SP500):
     snapshot = {
         "current_price": 0.0,
@@ -244,64 +263,75 @@ def _build_snapshot(index_type: IndexType = IndexType.SP500):
 
     try:
         price_history = _get_price_history(index_type)
-        if not price_history:
-            logger.warning("[snapshot] empty price history for %s", index_type.value)
-            return snapshot
+    except PriceHistoryFetchError:
+        logger.exception("[snapshot] price history unavailable for %s", index_type.value)
+        raise
 
-        market_service.get_current_price(price_history, index_type=index_type.value)
-        market_service.get_usd_jpy()
+    if not price_history:
+        logger.warning("[snapshot] empty price history for %s", index_type.value)
+        return snapshot
 
-        if index_type == IndexType.SP500:
-            fund_nav = nav_service.get_official_nav() or nav_service.get_synthetic_nav()
-            current_price = fund_nav["navJpy"]
-        else:
-            current_price = price_history[-1][1]
+    market_service.get_current_price(price_history, index_type=index_type.value)
+    market_service.get_usd_jpy()
 
+    if index_type == IndexType.SP500:
+        fund_nav = nav_service.get_official_nav() or nav_service.get_synthetic_nav()
+        current_price = fund_nav["navJpy"]
+    else:
+        current_price = price_history[-1][1]
+
+    try:
         technical_score, technical_details = calculate_technical_score(price_history)
+    except Exception:
+        logger.exception("[snapshot] technical calc failed for %s", index_type.value)
+        technical_score, technical_details = 0.0, {}
+
+    try:
         macro_data = macro_service.get_macro_series()
         macro_score, macro_details = calculate_macro_score(
             macro_data["r_10y"], macro_data["cpi"], macro_data["vix"]
         )
+    except Exception:
+        logger.exception("[snapshot] macro calc failed for %s", index_type.value)
+        macro_score, macro_details = 0.0, {}
 
-        # ★ここがあなたの赤枠（/api/events）系の根っこ：イベント取得→補正
+    try:
         events = event_service.get_events()
         event_adjustment, event_details = calculate_event_adjustment(date.today(), events)
-
-        # 超長期ガードに必要なMAのみ内部で計算（APIに露出しない）
-        ma500, ma1000 = calculate_ultra_long_mas(price_history)
-        guard_price = price_history[-1][1]
-        total_score = calculate_total_score(
-            technical_score,
-            macro_score,
-            event_adjustment,
-            current_price=guard_price,
-            ma500=ma500,
-            ma1000=ma1000,
-        )
-        label = get_label(total_score)
-
-        snapshot.update(
-            {
-                "current_price": current_price,
-                "scores": {
-                    "technical": technical_score,
-                    "macro": macro_score,
-                    "event_adjustment": event_adjustment,
-                    "total": total_score,
-                    "label": label,
-                },
-                "technical_details": technical_details,
-                "macro_details": macro_details,
-                "event_details": event_details,
-                "price_history": price_history,
-                "price_series": market_service.build_price_series_with_ma(price_history),
-            }
-        )
-    except PriceHistoryFetchError:
-        logger.exception("[snapshot] price history unavailable for %s", index_type.value)
-        raise
     except Exception:
-        logger.exception("[snapshot] failed to build snapshot for %s", index_type.value)
+        logger.exception("[snapshot] events calc failed for %s", index_type.value)
+        event_adjustment, event_details = 0.0, {}
+
+    # 超長期ガードに必要なMAのみ内部で計算（APIに露出しない）
+    ma500, ma1000 = calculate_ultra_long_mas(price_history)
+    guard_price = price_history[-1][1]
+    total_score = calculate_total_score(
+        technical_score,
+        macro_score,
+        event_adjustment,
+        current_price=guard_price,
+        ma500=ma500,
+        ma1000=ma1000,
+    )
+    label = get_label(total_score)
+
+    snapshot.update(
+        {
+            "current_price": current_price,
+            "scores": {
+                "technical": technical_score,
+                "macro": macro_score,
+                "event_adjustment": event_adjustment,
+                "total": total_score,
+                "label": label,
+            },
+            "technical_details": technical_details,
+            "macro_details": macro_details,
+            "event_details": event_details,
+            "price_history": price_history,
+            "price_series": market_service.build_price_series_with_ma(price_history),
+        }
+    )
     return snapshot
 
 
@@ -365,34 +395,65 @@ def get_cached_snapshot(index_type: IndexType = IndexType.SP500):
 # ======================
 
 def _evaluate(position: PositionRequest):
+    request_id = str(uuid.uuid4())
     logger.info(
-        "[evaluate] start index=%s score_ma=%s",
+        "[evaluate] start request_id=%s index=%s score_ma=%s",
+        request_id,
         position.index_type.value,
         position.score_ma,
     )
     try:
         snapshot = get_cached_snapshot(position.index_type)
     except PriceHistoryFetchError as exc:
-        logger.error("[evaluate] price history unavailable index=%s error=%s", position.index_type.value, exc)
+        logger.error(
+            "[evaluate] price history unavailable request_id=%s index=%s error=%s",
+            request_id,
+            position.index_type.value,
+            exc,
+        )
         raise HTTPException(
             status_code=503,
             detail={"reason": f"price history unavailable for {position.index_type.value}"},
         ) from exc
     current_price = snapshot["current_price"]
     if not snapshot.get("price_history"):
-        logger.error("[evaluate] empty price history index=%s", position.index_type.value)
+        logger.error("[evaluate] empty price history request_id=%s index=%s", request_id, position.index_type.value)
         raise HTTPException(
             status_code=503,
             detail={"reason": f"price history unavailable for {position.index_type.value}"},
         )
 
-    technical_score, technical_details = calculate_technical_score(
-        snapshot["price_history"], base_window=position.score_ma
-    )
+    reasons: list[str] = []
+    price_history = snapshot["price_history"]
+    price_series = snapshot["price_series"]
+    as_of = _resolve_as_of(price_history)
+
+    if not price_series:
+        reasons.append("PRICE_HISTORY_EMPTY")
+    elif len(price_series) < MIN_PRICE_POINTS:
+        reasons.append("PRICE_HISTORY_SHORT")
+
+    try:
+        technical_score, technical_details = calculate_technical_score(
+            price_history, base_window=position.score_ma
+        )
+        technical_ok = True
+    except Exception:
+        logger.exception("[evaluate] technical calc failed request_id=%s index=%s", request_id, position.index_type.value)
+        technical_score, technical_details = 0.0, {}
+        technical_ok = False
+        reasons.extend(["TECHNICAL_CALC_ERROR", "TECHNICAL_FALLBACK_ZERO"])
+
     macro_score = snapshot["scores"]["macro"]
     event_adjustment = snapshot["scores"]["event_adjustment"]
+
+    if not snapshot.get("macro_details"):
+        reasons.append("MACRO_UNAVAILABLE")
+
+    if not snapshot.get("event_details"):
+        reasons.append("EVENTS_UNAVAILABLE")
+
     # 超長期ガードに必要なMAのみ内部で計算（APIに露出しない）
-    price_history = snapshot["price_history"]
     ma500, ma1000 = calculate_ultra_long_mas(price_history)
     guard_price = price_history[-1][1]
     total_score = calculate_total_score(
@@ -405,18 +466,35 @@ def _evaluate(position: PositionRequest):
     )
     label = get_label(total_score)
     logger.info(
-        "[evaluate] price history ready index=%s points=%d",
+        "[evaluate] price history ready request_id=%s index=%s points=%d",
+        request_id,
         position.index_type.value,
-        len(snapshot["price_history"]),
+        len(price_history),
     )
 
     market_value = position.total_quantity * current_price
     unrealized_pnl = market_value - (position.total_quantity * position.avg_cost)
 
+    status = "ready" if not reasons else "degraded"
+    if not technical_ok and "TECHNICAL_FALLBACK_ZERO" not in reasons:
+        reasons.append("TECHNICAL_FALLBACK_ZERO")
+
+    if status != "ready":
+        logger.warning(
+            "[evaluate] degraded request_id=%s index=%s reasons=%s",
+            request_id,
+            position.index_type.value,
+            reasons,
+        )
+
     return {
         "current_price": current_price,
         "market_value": round(market_value, 2),
         "unrealized_pnl": round(unrealized_pnl, 2),
+        "status": status,
+        "reasons": reasons,
+        "as_of": as_of,
+        "request_id": request_id,
         "scores": {
             "technical": technical_score,
             "macro": macro_score,
@@ -427,7 +505,7 @@ def _evaluate(position: PositionRequest):
         "technical_details": technical_details,
         "macro_details": snapshot["macro_details"],
         "event_details": snapshot["event_details"],
-        "price_series": snapshot["price_series"],
+        "price_series": price_series,
     }
 
 

@@ -27,6 +27,10 @@ export interface EvaluateResponse {
   current_price: number
   market_value: number
   unrealized_pnl: number
+  status: 'ready' | 'degraded' | 'error'
+  reasons: string[]
+  as_of: string
+  request_id: string
   scores: {
     technical: number
     macro: number
