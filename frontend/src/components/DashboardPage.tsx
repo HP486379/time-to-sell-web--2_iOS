@@ -104,6 +104,7 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
   const priceReqSeqRef = useRef(0)
   const evalReqSeqRef = useRef(0)
   const evalRetryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const latestEvalRequestIdRef = useRef<Partial<Record<IndexType, string>>>({})
 
   // ★ 追加：イベント用 state
   const [events, setEvents] = useState<EventItem[]>([])
@@ -141,6 +142,14 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
 
   const EVAL_RETRY_DELAYS_MS = [1500, 3000, 6000]
 
+  const genRequestId = () => {
+    try {
+      return crypto.randomUUID()
+    } catch {
+      return `${Date.now()}-${Math.random().toString(16).slice(2)}`
+    }
+  }
+
   const resolveEvalStatus = (data: EvaluateResponse): EvalStatus => {
     if (data.status) return data.status
     if (!data.price_series || data.price_series.length === 0) return 'degraded'
@@ -171,8 +180,10 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
     retryCount = 0,
   ) => {
     const reqSeq = ++evalReqSeqRef.current
+    const clientRequestId = genRequestId()
+    latestEvalRequestIdRef.current[targetIndex] = clientRequestId
     try {
-      const body = { ...lastRequest, ...(payload ?? {}), index_type: targetIndex }
+      const body = { ...lastRequest, ...(payload ?? {}), index_type: targetIndex, request_id: clientRequestId }
       if (markPrimary) {
         setError(null)
         if (retryCount === 0) {
@@ -184,6 +195,7 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
       }
       const res = await apiClient.post<EvaluateResponse>('/api/evaluate', body)
       if (reqSeq !== evalReqSeqRef.current) return
+      if (res.data.request_id !== latestEvalRequestIdRef.current[targetIndex]) return
       const status = resolveEvalStatus(res.data)
       const reasons = res.data.reasons ?? []
       if (markPrimary) {

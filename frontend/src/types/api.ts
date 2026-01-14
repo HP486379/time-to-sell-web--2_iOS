@@ -5,6 +5,7 @@ export interface EvaluateRequest {
   avg_cost: number
   index_type: IndexType
   score_ma: number
+  request_id?: string
 }
 
 export interface EconomicEvent {

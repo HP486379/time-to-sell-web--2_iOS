@@ -59,6 +59,7 @@ class PositionRequest(BaseModel):
     avg_cost: float
     index_type: IndexType = IndexType.SP500
     score_ma: int = Field(200)
+    request_id: Optional[str] = None
 
 
 class PricePoint(BaseModel):
@@ -395,7 +396,7 @@ def get_cached_snapshot(index_type: IndexType = IndexType.SP500):
 # ======================
 
 def _evaluate(position: PositionRequest):
-    request_id = str(uuid.uuid4())
+    request_id = position.request_id or str(uuid.uuid4())
     logger.info(
         "[evaluate] start request_id=%s index=%s score_ma=%s",
         request_id,
