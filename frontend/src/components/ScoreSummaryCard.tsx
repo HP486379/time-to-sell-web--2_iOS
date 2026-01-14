@@ -10,9 +10,14 @@ import {
   Tooltip,
   Divider,
   Button,
+  Alert,
+  Chip,
+  Skeleton,
 } from '@mui/material'
 import type { TooltipTexts } from '../tooltipTexts'
 import { getScoreZoneText } from '../utils/alertState'
+
+type EvalStatus = 'loading' | 'ready' | 'degraded' | 'error' | 'refreshing'
 
 interface ScoreSummaryCardProps {
   scores?: {
@@ -29,6 +34,10 @@ interface ScoreSummaryCardProps {
   expanded?: boolean
   onShowDetails?: () => void
   tooltips: TooltipTexts
+  status?: EvalStatus
+  statusMessage?: string
+  onRetry?: () => void
+  isRetrying?: boolean
 }
 
 function ScoreSummaryCard({
@@ -40,12 +49,17 @@ function ScoreSummaryCard({
   expanded,
   onShowDetails,
   tooltips,
+  status = 'ready',
+  statusMessage,
+  onRetry,
+  isRetrying = false,
 }: ScoreSummaryCardProps) {
   const theme = useTheme()
   const isDark = theme.palette.mode === 'dark'
   const gradientStart = isDark ? '#101726' : alpha(theme.palette.primary.light, 0.2)
   const gradientEnd = isDark ? '#0c1b34' : alpha(theme.palette.secondary.light, 0.16)
-  const zoneTextValue = zoneText ?? getScoreZoneText(scores?.total)
+  const showConfirmed = status === 'ready' || status === 'refreshing'
+  const zoneTextValue = zoneText ?? getScoreZoneText(showConfirmed ? scores?.total : undefined)
   const showHighlights = highlights.length > 0
   const showDetailsToggle = Boolean(onShowDetails) && expanded !== undefined
 
@@ -59,27 +73,92 @@ function ScoreSummaryCard({
     >
       <CardContent>
         <Stack spacing={2}>
+          {status === 'degraded' && (
+            <Alert
+              severity="warning"
+              action={
+                onRetry ? (
+                  <Button color="inherit" size="small" onClick={onRetry}>
+                    再取得
+                  </Button>
+                ) : undefined
+              }
+            >
+              <Typography variant="subtitle2" component="div">
+                ⚠ 一部データ取得中
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                {statusMessage ?? '価格履歴の取得が未完了のため、現在のスコアは参考値です。'}
+              </Typography>
+              {isRetrying && (
+                <Typography variant="caption" color="text.secondary">
+                  再試行中…
+                </Typography>
+              )}
+            </Alert>
+          )}
+          {status === 'error' && (
+            <Alert
+              severity="error"
+              action={
+                onRetry ? (
+                  <Button color="inherit" size="small" onClick={onRetry}>
+                    再取得
+                  </Button>
+                ) : undefined
+              }
+            >
+              <Typography variant="subtitle2" component="div">
+                ❌ データ取得に失敗しました
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                {statusMessage ?? '時間をおいて再取得してください。'}
+              </Typography>
+            </Alert>
+          )}
           <Tooltip title={tooltips.score.total} arrow>
             <Typography variant="overline" color="text.secondary" component="div">
               総合スコア
             </Typography>
           </Tooltip>
-          <Typography variant="h3" color="primary.main" fontWeight={700}>
-            {scores ? scores.total.toFixed(1) : '--'}
-          </Typography>
+          <Stack direction="row" alignItems="center" spacing={1}>
+            {status === 'loading' ? (
+              <Skeleton variant="text" width={120} height={44} />
+            ) : (
+              <Typography variant="h3" color="primary.main" fontWeight={700}>
+                {showConfirmed && scores ? scores.total.toFixed(1) : '--'}
+              </Typography>
+            )}
+            {status === 'refreshing' && <Chip size="small" color="info" label="更新中…" />}
+          </Stack>
           <Tooltip title={tooltips.score.label} arrow>
             <Typography variant="subtitle1" color="text.secondary" component="div">
-              {scores?.label ?? '計算待ち'}
+              {showConfirmed ? scores?.label ?? '計算待ち' : status === 'degraded' ? '参考値' : '計算中'}
             </Typography>
           </Tooltip>
           <Typography variant="body2" color="text.secondary">
-            {zoneTextValue}
+            {status === 'loading' ? '⏳ 計算中…' : zoneTextValue}
           </Typography>
 
           <Stack spacing={1}>
-            <LabelBar label="テクニカル" tooltip={tooltips.score.technical} value={scores?.technical} color="primary" />
-            <LabelBar label="マクロ" tooltip={tooltips.score.macro} value={scores?.macro} color="secondary" />
-            <LabelBar label="イベント補正" tooltip={tooltips.score.event} value={scores?.event_adjustment} color="error" />
+            <LabelBar
+              label="テクニカル"
+              tooltip={tooltips.score.technical}
+              value={showConfirmed ? scores?.technical : undefined}
+              color="primary"
+            />
+            <LabelBar
+              label="マクロ"
+              tooltip={tooltips.score.macro}
+              value={showConfirmed ? scores?.macro : undefined}
+              color="secondary"
+            />
+            <LabelBar
+              label="イベント補正"
+              tooltip={tooltips.score.event}
+              value={showConfirmed ? scores?.event_adjustment : undefined}
+              color="error"
+            />
           </Stack>
 
           {showHighlights && (
