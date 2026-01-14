@@ -123,6 +123,15 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
   const totalScore = displayResponse?.scores?.total
   const priceSeries = priceSeriesMap[indexType] ?? []
 
+  const handleRetry = () => {
+    setEvalStatusMap((prev) => ({
+      ...prev,
+      [indexType]: response ? 'refreshing' : 'loading',
+    }))
+    setIsEvalRetrying(false)
+    void fetchAll()
+  }
+
   // ★ MA(20/60/200) → チャート開始時点(1m/3m/1y)へのマッピング
   const scoreMaToStartOption = (scoreMa: number): StartOption => {
     if (scoreMa === 20) return '1m'
@@ -394,49 +403,32 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
   const scoreMaDays = lastRequest.score_ma as ScoreMaDays
 
   const reasonLabelMap: Record<string, string> = {
-    PRICE_HISTORY_EMPTY: '価格履歴が空です',
-    PRICE_HISTORY_SHORT: '価格履歴が短いため精度が低下しています',
-    PRICE_HISTORY_UNAVAILABLE: '価格履歴が取得できません',
-    TECHNICAL_FALLBACK_ZERO: 'テクニカル指標が未確定です',
+    PRICE_HISTORY_EMPTY: '価格履歴を取得できていません',
+    PRICE_HISTORY_SHORT: '過去データが不足しています',
+    PRICE_HISTORY_UNAVAILABLE: '価格履歴取得が一時的に不安定です',
+    TECHNICAL_FALLBACK_ZERO: 'テクニカル指標を再計算中です',
     TECHNICAL_CALC_ERROR: 'テクニカル計算に失敗しました',
-    MACRO_UNAVAILABLE: 'マクロ指標が取得できません',
-    EVENTS_UNAVAILABLE: 'イベント情報が取得できません',
+    MACRO_UNAVAILABLE: 'マクロ指標の取得に失敗しました',
+    EVENTS_UNAVAILABLE: 'イベント情報の取得に失敗しました',
   }
 
+  const reasonMessages = evalReasons
+    .map((reason) => reasonLabelMap[reason] ?? reason)
+    .filter((reason, index, array) => array.indexOf(reason) === index)
+    .slice(0, 2)
+
   const degradedMessage =
-    evalReasons.length > 0
-      ? evalReasons.map((reason) => reasonLabelMap[reason] ?? reason).join(' / ')
-      : 'データが未確定のためスコアを確定できません'
+    reasonMessages.length > 0
+      ? `ℹ 状態：${reasonMessages.join(' / ')}`
+      : 'ℹ 状態：データが未確定のためスコアを確定できません'
+
+  const statusMessage =
+    evalStatus === 'error'
+      ? error ?? '評価データの取得に失敗しました。'
+      : degradedMessage
 
   return (
     <Stack spacing={3}>
-      {evalStatus === 'loading' && (
-        <Alert severity="info">計算中…</Alert>
-      )}
-      {evalStatus === 'degraded' && (
-        <Alert
-          severity="warning"
-          action={
-            <Button color="inherit" size="small" onClick={() => void fetchAll()}>
-              再取得
-            </Button>
-          }
-        >
-          {degradedMessage}
-        </Alert>
-      )}
-      {evalStatus === 'error' && (
-        <Alert
-          severity="error"
-          action={
-            <Button color="inherit" size="small" onClick={() => void fetchAll()}>
-              再取得
-            </Button>
-          }
-        >
-          {error ?? '評価データの取得に失敗しました。'}
-        </Alert>
-      )}
       <Box
         sx={{
           width: '100%',
@@ -529,13 +521,17 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
               <>
                 <Grid item xs={12} md={7} sx={{ height: '100%' }}>
                   <Box sx={{ height: '100%' }}>
-                  <SimpleAlertCard
-                    scores={displayResponse?.scores}
-                    highlights={highlights}
-                    zoneText={zoneText}
+                    <SimpleAlertCard
+                      scores={displayResponse?.scores}
+                      highlights={highlights}
+                      zoneText={zoneText}
                       onShowDetails={() => setShowDetails((prev) => !prev)}
                       expanded={showDetails}
                       tooltips={tooltipTexts}
+                      status={evalStatus}
+                      statusMessage={statusMessage}
+                      onRetry={handleRetry}
+                      isRetrying={isEvalRetrying}
                     />
                   </Box>
                 </Grid>
@@ -553,6 +549,10 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
                       onShowDetails={() => setShowDetails((prev) => !prev)}
                       expanded={showDetails}
                       tooltips={tooltipTexts}
+                      status={evalStatus}
+                      statusMessage={statusMessage}
+                      onRetry={handleRetry}
+                      isRetrying={isEvalRetrying}
                     />
                   </Collapse>
                 </Grid>
@@ -560,12 +560,16 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
             ) : (
               <>
                 <Grid item xs={12} md={7} sx={{ height: '100%' }}>
-                  <ScoreSummaryCard
-                    scores={displayResponse?.scores}
-                    technical={displayResponse?.technical_details}
-                    macro={displayResponse?.macro_details}
-                    tooltips={tooltipTexts}
-                  />
+                <ScoreSummaryCard
+                  scores={displayResponse?.scores}
+                  technical={displayResponse?.technical_details}
+                  macro={displayResponse?.macro_details}
+                  tooltips={tooltipTexts}
+                  status={evalStatus}
+                  statusMessage={statusMessage}
+                  onRetry={handleRetry}
+                  isRetrying={isEvalRetrying}
+                />
                 </Grid>
                 <Grid item xs={12} md={5} sx={{ height: '100%' }}>
                   <SellTimingAvatarCard decision={avatarDecision} scoreMaDays={scoreMaDays} />
