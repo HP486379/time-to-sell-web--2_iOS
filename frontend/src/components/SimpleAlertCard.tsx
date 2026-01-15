@@ -130,7 +130,7 @@ function SimpleAlertCard({
               ) : (
                 <>
                   <Typography variant="h6" fontWeight={700} color={textPrimary}>
-                    {showConfirmed ? alert.title : '参考値を確認中'}
+                    {showConfirmed ? alert.title : '未確定データを確認中'}
                   </Typography>
                   <Typography variant="body2" color={textSecondary}>
                     {showConfirmed ? alert.reaction : 'データが揃い次第、確定スコアを表示します。'}
@@ -141,7 +141,7 @@ function SimpleAlertCard({
             {status === 'refreshing' && <Chip size="small" color="info" label="更新中…" />}
           </Stack>
           <Typography variant="body1" color={textPrimary}>
-            {status === 'loading' ? '⏳ 計算中…' : showConfirmed ? alert.message : '現在のスコアは参考値です。'}
+            {status === 'loading' ? '⏳ 計算中…' : showConfirmed ? alert.message : '現在のスコアは未確定です。'}
           </Typography>
           <Typography variant="body2" color={textSecondary}>
             {status === 'loading' ? '計算完了までしばらくお待ちください。' : zoneText ?? getScoreZoneText(scores?.total)}

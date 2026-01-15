@@ -133,7 +133,7 @@ function ScoreSummaryCard({
           </Stack>
           <Tooltip title={tooltips.score.label} arrow>
             <Typography variant="subtitle1" color="text.secondary" component="div">
-              {showConfirmed ? scores?.label ?? '計算待ち' : status === 'degraded' ? '参考値' : '計算中'}
+              {showConfirmed ? scores?.label ?? '計算待ち' : status === 'degraded' ? '未確定' : '計算中'}
             </Typography>
           </Tooltip>
           <Typography variant="body2" color="text.secondary">

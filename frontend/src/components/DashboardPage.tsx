@@ -22,6 +22,7 @@ import {
   MenuItem,
   FormHelperText,
   TextField,
+  Skeleton,
 } from '@mui/material'
 import axios from 'axios'
 import dayjs from 'dayjs'
@@ -101,6 +102,7 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
   const [isEvalRetrying, setIsEvalRetrying] = useState(false)
   const [evalStatusMap, setEvalStatusMap] = useState<Partial<Record<IndexType, EvalStatus>>>({})
   const [evalReasonsMap, setEvalReasonsMap] = useState<Partial<Record<IndexType, string[]>>>({})
+  const [evalStatusMessageMap, setEvalStatusMessageMap] = useState<Partial<Record<IndexType, string>>>({})
   const priceReqSeqRef = useRef(0)
   const evalReqSeqRef = useRef(0)
   const evalRetryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -119,6 +121,7 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
   const response = responses[indexType] ?? null
   const evalStatus = evalStatusMap[indexType] ?? (response ? 'ready' : 'loading')
   const evalReasons = evalReasonsMap[indexType] ?? []
+  const evalStatusMessage = evalStatusMessageMap[indexType]
   const showScores = evalStatus === 'ready' || evalStatus === 'refreshing'
   const displayResponse = showScores ? response : null
   const totalScore = displayResponse?.scores?.total
@@ -150,12 +153,20 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
     }
   }
 
-  const resolveEvalStatus = (data: EvaluateResponse): EvalStatus => {
-    if (data.status) return data.status
-    if (!data.price_series || data.price_series.length === 0) return 'degraded'
-    const warning = data.event_details?.warning
-    if (typeof warning === 'string' && warning.includes('price history unavailable')) return 'degraded'
-    return 'ready'
+  const resolveUiStatus = (data: EvaluateResponse): EvalStatus => {
+    const apiStatus = (data.status ?? 'ready') as EvalStatus
+    const reasons = data.reasons ?? []
+    const hasTechUnavailable = reasons.includes('TECHNICAL_UNAVAILABLE')
+    const priceSeriesEmpty = !data.price_series || data.price_series.length === 0
+    const techLooksBroken =
+      (data.scores?.technical === 0 && (data.scores?.macro ?? 0) >= 50) ||
+      data.technical_details?.T_base === undefined
+
+    if (apiStatus === 'error') return 'error'
+    if (apiStatus === 'loading') return 'loading'
+    if (hasTechUnavailable || priceSeriesEmpty || techLooksBroken) return 'degraded'
+
+    return apiStatus
   }
 
   const scheduleEvalRetry = (
@@ -196,11 +207,22 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
       const res = await apiClient.post<EvaluateResponse>('/api/evaluate', body)
       if (reqSeq !== evalReqSeqRef.current) return
       if (res.data.request_id !== latestEvalRequestIdRef.current[targetIndex]) return
-      const status = resolveEvalStatus(res.data)
+      const status = resolveUiStatus(res.data)
       const reasons = res.data.reasons ?? []
+      let uiMessage: string | undefined
+      if (status === 'degraded') {
+        if (reasons.includes('TECHNICAL_UNAVAILABLE')) {
+          uiMessage = 'テクニカル指標の取得が未完了のため、スコアは確定していません。'
+        } else if (!res.data.price_series || res.data.price_series.length === 0) {
+          uiMessage = '価格履歴の取得が未完了のため、スコアは確定していません。'
+        } else {
+          uiMessage = '一部データ取得中のため、スコアは確定していません。'
+        }
+      }
       if (markPrimary) {
         setEvalStatusMap((prev) => ({ ...prev, [targetIndex]: status }))
         setEvalReasonsMap((prev) => ({ ...prev, [targetIndex]: reasons }))
+        setEvalStatusMessageMap((prev) => ({ ...prev, [targetIndex]: uiMessage ?? '' }))
       }
 
       if (status === 'degraded') {
@@ -240,6 +262,10 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
         setIsEvalRetrying(false)
         setEvalStatusMap((prev) => ({ ...prev, [targetIndex]: 'error' }))
         setEvalReasonsMap((prev) => ({ ...prev, [targetIndex]: ['PRICE_HISTORY_UNAVAILABLE'] }))
+        setEvalStatusMessageMap((prev) => ({
+          ...prev,
+          [targetIndex]: '価格履歴の取得に失敗しました。再取得してください。',
+        }))
       }
       if (markPrimary) {
         setError(
@@ -438,7 +464,7 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
   const statusMessage =
     evalStatus === 'error'
       ? error ?? '評価データの取得に失敗しました。'
-      : degradedMessage
+      : evalStatusMessage || degradedMessage
 
   return (
     <Stack spacing={3}>
@@ -660,12 +686,16 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
                 animate="animate"
                 exit="exit"
               >
-                <PriceChart
-                  priceSeries={chartSeries}
-                  simple={false} // proのみ描画なので実質false（互換維持）
-                  tooltips={tooltipTexts}
-                  legendLabels={legendLabels}
-                />
+                {evalStatus === 'ready' || evalStatus === 'refreshing' ? (
+                  <PriceChart
+                    priceSeries={chartSeries}
+                    simple={false} // proのみ描画なので実質false（互換維持）
+                    tooltips={tooltipTexts}
+                    legendLabels={legendLabels}
+                  />
+                ) : (
+                  <Skeleton variant="rounded" height={260} />
+                )}
               </motion.div>
             </AnimatePresence>
           </CardContent>
