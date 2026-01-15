@@ -443,7 +443,7 @@ def _evaluate(position: PositionRequest):
         logger.exception("[evaluate] technical calc failed request_id=%s index=%s", request_id, position.index_type.value)
         technical_score, technical_details = 0.0, {}
         technical_ok = False
-        reasons.extend(["TECHNICAL_CALC_ERROR", "TECHNICAL_FALLBACK_ZERO"])
+        reasons.extend(["TECHNICAL_CALC_ERROR", "TECHNICAL_UNAVAILABLE"])
 
     macro_score = snapshot["scores"]["macro"]
     event_adjustment = snapshot["scores"]["event_adjustment"]
@@ -476,9 +476,12 @@ def _evaluate(position: PositionRequest):
     market_value = position.total_quantity * current_price
     unrealized_pnl = market_value - (position.total_quantity * position.avg_cost)
 
-    status = "ready" if not reasons else "degraded"
-    if not technical_ok and "TECHNICAL_FALLBACK_ZERO" not in reasons:
+    if technical_score == 0:
         reasons.append("TECHNICAL_FALLBACK_ZERO")
+
+    status = "ready" if not reasons else "degraded"
+    if not technical_ok and "TECHNICAL_UNAVAILABLE" not in reasons:
+        reasons.append("TECHNICAL_UNAVAILABLE")
 
     if status != "ready":
         logger.warning(

@@ -420,6 +420,7 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
     PRICE_HISTORY_UNAVAILABLE: '価格履歴取得が一時的に不安定です',
     TECHNICAL_FALLBACK_ZERO: 'テクニカル指標を再計算中です',
     TECHNICAL_CALC_ERROR: 'テクニカル計算に失敗しました',
+    TECHNICAL_UNAVAILABLE: 'テクニカル指標が取得できません',
     MACRO_UNAVAILABLE: 'マクロ指標の取得に失敗しました',
     EVENTS_UNAVAILABLE: 'イベント情報の取得に失敗しました',
   }
