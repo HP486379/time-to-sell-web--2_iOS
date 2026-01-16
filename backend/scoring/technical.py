@@ -69,7 +69,7 @@ def _slope(series: List[float], lookback: int = 5) -> Optional[float]:
 
 def detect_ma200_convergence(
     closes: List[float],
-    deviation_trigger: float = 0.15,  # 15%: 収斂判定を本気で見る入口
+    deviation_trigger: float = 0.05,  # 15%: 収斂判定を本気で見る入口
     danger_full: float = 0.25,        # 25%: danger=100相当
     slope_lookback: int = 5,
 ) -> Dict[str, Any]:
