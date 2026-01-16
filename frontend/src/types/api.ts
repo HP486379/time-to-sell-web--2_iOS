@@ -5,6 +5,7 @@ export interface EvaluateRequest {
   avg_cost: number
   index_type: IndexType
   score_ma: number
+  request_id?: string
 }
 
 export interface EconomicEvent {
@@ -27,6 +28,10 @@ export interface EvaluateResponse {
   current_price: number
   market_value: number
   unrealized_pnl: number
+  status: 'ready' | 'degraded' | 'error'
+  reasons: string[]
+  as_of: string
+  request_id: string
   scores: {
     technical: number
     macro: number
@@ -38,6 +43,10 @@ export interface EvaluateResponse {
     d: number
     T_base: number
     T_trend: number
+    T_conv_adj?: number
+    convergence?: {
+      side?: 'down_convergence' | 'up_convergence' | 'neutral'
+    }
   }
   macro_details: {
     p_r: number
@@ -50,6 +59,7 @@ export interface EvaluateResponse {
     R_max: number
     effective_event: EconomicEvent | null
     events?: EconomicEvent[]
+    warning?: string
   }
   price_series: PricePoint[]
 }
