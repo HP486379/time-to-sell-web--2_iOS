@@ -43,6 +43,10 @@ export interface EvaluateResponse {
     d: number
     T_base: number
     T_trend: number
+    T_conv_adj?: number
+    convergence?: {
+      side?: 'down_convergence' | 'up_convergence' | 'neutral'
+    }
   }
   macro_details: {
     p_r: number

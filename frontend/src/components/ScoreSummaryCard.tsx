@@ -27,7 +27,13 @@ interface ScoreSummaryCardProps {
     total: number
     label: string
   }
-  technical?: { d: number; T_base: number; T_trend: number }
+  technical?: {
+    d: number
+    T_base: number
+    T_trend: number
+    T_conv_adj?: number
+    convergence?: { side?: 'down_convergence' | 'up_convergence' | 'neutral' }
+  }
   macro?: { p_r: number; p_cpi: number; p_vix: number; M: number }
   highlights?: { icon: string; text: string }[]
   zoneText?: string
@@ -62,6 +68,18 @@ function ScoreSummaryCard({
   const zoneTextValue = zoneText ?? getScoreZoneText(showConfirmed ? scores?.total : undefined)
   const showHighlights = highlights.length > 0
   const showDetailsToggle = Boolean(onShowDetails) && expanded !== undefined
+  const convergenceSide = technical?.convergence?.side
+  const convergenceAdj = technical?.T_conv_adj ?? 0
+  const showConvergenceBadge =
+    convergenceSide !== undefined &&
+    convergenceSide !== 'neutral' &&
+    Math.abs(convergenceAdj) >= 0.5
+  const convergenceLabel =
+    convergenceSide === 'down_convergence' ? '🔸 天井圏・調整兆し' : '🔹 底打ち・反発兆し'
+  const convergenceTooltip =
+    convergenceSide === 'down_convergence'
+      ? '上昇の勢いが弱まり、価格が長期平均（200日線）に近づく動きが出始めています。\n※この兆しはスコアに反映されています。'
+      : '下落の勢いが弱まり、価格が長期平均（200日線）に近づく動きが出始めています。\n※この兆しはスコアに反映されています。'
 
   return (
     <Card
@@ -121,13 +139,30 @@ function ScoreSummaryCard({
               総合スコア
             </Typography>
           </Tooltip>
-          <Stack direction="row" alignItems="center" spacing={1}>
+          <Stack direction="row" alignItems="center" spacing={1} flexWrap="wrap">
             {status === 'loading' ? (
               <Skeleton variant="text" width={120} height={44} />
             ) : (
               <Typography variant="h3" color="primary.main" fontWeight={700}>
                 {showConfirmed && scores ? scores.total.toFixed(1) : '--'}
               </Typography>
+            )}
+            {showConvergenceBadge && (
+              <Box
+                title={convergenceTooltip}
+                sx={(theme) => ({
+                  px: 1,
+                  py: 0.25,
+                  borderRadius: 999,
+                  fontSize: '0.7rem',
+                  lineHeight: 1.2,
+                  border: `1px solid ${alpha(theme.palette.text.primary, 0.2)}`,
+                  bgcolor: alpha(theme.palette.text.primary, theme.palette.mode === 'dark' ? 0.08 : 0.04),
+                  color: theme.palette.text.secondary,
+                })}
+              >
+                {convergenceLabel}
+              </Box>
             )}
             {status === 'refreshing' && <Chip size="small" color="info" label="更新中…" />}
           </Stack>
