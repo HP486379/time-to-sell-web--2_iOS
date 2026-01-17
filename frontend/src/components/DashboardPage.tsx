@@ -153,6 +153,12 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
     }
   }
 
+  const resolveApiIndexType = (targetIndex: IndexType) => {
+    if (targetIndex === 'sp500_jpy') return 'SP500_JPY'
+    if (targetIndex === 'orukan_jpy') return 'ORUKAN_JPY'
+    return targetIndex
+  }
+
   const resolveUiStatus = (data: EvaluateResponse): EvalStatus => {
     const apiStatus = (data.status ?? 'ready') as EvalStatus
     const reasons = data.reasons ?? []
@@ -194,7 +200,8 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
     const clientRequestId = genRequestId()
     latestEvalRequestIdRef.current[targetIndex] = clientRequestId
     try {
-      const body = { ...lastRequest, ...(payload ?? {}), index_type: targetIndex, request_id: clientRequestId }
+      const apiIndexType = resolveApiIndexType(targetIndex)
+      const body = { ...lastRequest, ...(payload ?? {}), index_type: apiIndexType, request_id: clientRequestId }
       if (markPrimary) {
         setError(null)
         if (retryCount === 0) {

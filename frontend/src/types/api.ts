@@ -3,7 +3,7 @@ import type { IndexType } from './index'
 export interface EvaluateRequest {
   total_quantity: number
   avg_cost: number
-  index_type: IndexType
+  index_type: IndexType | string
   score_ma: number
   request_id?: string
 }
@@ -32,6 +32,11 @@ export interface EvaluateResponse {
   reasons: string[]
   as_of: string
   request_id: string
+  used_index_type: string
+  source: string
+  currency: string
+  unit: string
+  symbol: string
   scores: {
     technical: number
     macro: number

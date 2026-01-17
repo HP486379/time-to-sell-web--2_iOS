@@ -6,7 +6,7 @@ from enum import Enum
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, validator
 
 from scoring.technical import calculate_technical_score, calculate_ultra_long_mas
 # 超長期(500/1000日)MA評価：暴落局面でのみ連続的にスコア減衰させる内部ロジック（API/UIには露出しない）
@@ -61,6 +61,16 @@ class PositionRequest(BaseModel):
     score_ma: int = Field(200)
     request_id: Optional[str] = None
 
+    @validator("index_type", pre=True)
+    def normalize_index_type(cls, value):
+        if isinstance(value, str):
+            normalized = value.lower()
+            if normalized == "sp500_jpy":
+                return IndexType.SP500_JPY
+            if normalized == "orukan_jpy":
+                return IndexType.ORUKAN_JPY
+        return value
+
 
 class PricePoint(BaseModel):
     date: str
@@ -86,6 +96,11 @@ class EvaluateResponse(BaseModel):
     reasons: List[str]
     as_of: str
     request_id: str
+    used_index_type: str
+    source: str
+    currency: str
+    unit: str
+    symbol: str
     scores: dict
     technical_details: dict
     macro_details: dict
@@ -275,11 +290,7 @@ def _build_snapshot(index_type: IndexType = IndexType.SP500):
     market_service.get_current_price(price_history, index_type=index_type.value)
     market_service.get_usd_jpy()
 
-    if index_type == IndexType.SP500:
-        fund_nav = nav_service.get_official_nav() or nav_service.get_synthetic_nav()
-        current_price = fund_nav["navJpy"]
-    else:
-        current_price = price_history[-1][1]
+    current_price = price_history[-1][1]
 
     try:
         technical_score, technical_details = calculate_technical_score(price_history)
@@ -502,6 +513,19 @@ def _evaluate(position: PositionRequest):
             reasons,
         )
 
+    used_index_type = (
+        "SP500_JPY" if position.index_type == IndexType.SP500_JPY else
+        "ORUKAN_JPY" if position.index_type == IndexType.ORUKAN_JPY else
+        position.index_type.value
+    )
+    price_type = market_service._resolve_price_type(position.index_type.value)
+    symbol = market_service._resolve_symbol(position.index_type.value)
+    fx_symbol = market_service._resolve_fx_symbol(position.index_type.value)
+    series_symbol = f"{symbol}*{fx_symbol}" if fx_symbol else symbol
+    currency = "JPY" if price_type == "index_jpy" else "USD"
+    unit = "index_jpy" if price_type == "index_jpy" else "index"
+    source = "yfinance_fx" if fx_symbol else "yfinance"
+
     try:
         return {
             "current_price": current_price,
@@ -511,6 +535,11 @@ def _evaluate(position: PositionRequest):
             "reasons": reasons,
             "as_of": as_of,
             "request_id": request_id,
+            "used_index_type": used_index_type,
+            "source": source,
+            "currency": currency,
+            "unit": unit,
+            "symbol": series_symbol,
             "scores": {
                 "technical": technical_score,
                 "macro": macro_score,
