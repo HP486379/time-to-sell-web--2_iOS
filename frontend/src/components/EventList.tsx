@@ -117,8 +117,8 @@ const EventList: React.FC<Props> = ({ eventDetails, events, isLoading, error, to
     return <Chip size="small" variant="outlined" label="参考" />
   }
 
-  const getSourceChip = (source: string) => {
-    if (source === 'manual') {
+  const getSourceChip = (source?: string) => {
+    if (source === 'manual' || !source) {
       return null
     }
     return (
