@@ -73,7 +73,7 @@ function ScoreSummaryCard({
   const showConvergenceBadge =
     convergenceSide !== undefined &&
     convergenceSide !== 'neutral' &&
-    Math.abs(convergenceAdj) >= 0.3
+    Math.abs(convergenceAdj) >= 0.5
   const convergenceLabel =
     convergenceSide === 'down_convergence' ? '🔸 天井圏・調整兆し' : '🔹 底打ち・反発兆し'
   const convergenceTooltip =
