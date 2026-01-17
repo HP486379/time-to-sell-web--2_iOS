@@ -432,7 +432,9 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
     run()
   }, [indexType, priceSeries])
 
-  const scoreMaLabel = displayMode === 'simple' ? '売りの目安（期間）' : 'スコア算出MA'
+  const scoreMaLabel = '想定ホールド期間（出口判定）'
+  const scoreMaTooltip =
+    'たとえば「長期（3か月〜1年）」は、\n3か月〜1年くらい前から売却を考えていた人にとって、\n今が売り場（出口）に近いかどうかを表します。'
   const scoreMaOptions = [
     { value: 20, labelSimple: '短期（2〜6週間）', labelPro: '20日（短期・2〜6週間）' },
     { value: 60, labelSimple: '中期（2〜3か月）', labelPro: '60日（中期・2〜3か月）' },
@@ -514,23 +516,25 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
 
         <FormControl size="small" sx={{ minWidth: 220 }}>
           <InputLabel id="score-ma-select-label">{scoreMaLabel}</InputLabel>
-          <Select
-            labelId="score-ma-select-label"
-            value={lastRequest.score_ma}
-            label={scoreMaLabel}
-            onChange={(e) => handleScoreMaChange(Number(e.target.value))}
-          >
-            {scoreMaOptions.map(({ value, labelSimple, labelPro }) => (
-              <MenuItem key={value} value={value}>
-                {displayMode === 'simple' ? labelSimple : labelPro}
-              </MenuItem>
-            ))}
-          </Select>
-          {displayMode === 'simple' && (
-            <FormHelperText sx={{ whiteSpace: 'nowrap' }}>
-              この期間を目安に利確タイミングを計算します（短期は反応早め、長期はゆったり）
-            </FormHelperText>
-          )}
+          <Tooltip title={scoreMaTooltip} arrow>
+            <Select
+              labelId="score-ma-select-label"
+              value={lastRequest.score_ma}
+              label={scoreMaLabel}
+              onChange={(e) => handleScoreMaChange(Number(e.target.value))}
+            >
+              {scoreMaOptions.map(({ value, labelSimple, labelPro }) => (
+                <MenuItem key={value} value={value}>
+                  {displayMode === 'simple' ? labelSimple : labelPro}
+                </MenuItem>
+              ))}
+            </Select>
+          </Tooltip>
+          <FormHelperText sx={{ whiteSpace: 'normal', lineHeight: 1.4 }}>
+            ※「何年後に売る」ではありません。
+            <br />
+            そのくらい前から売却を考えていた人にとって、今が出口かどうかを見ます。
+          </FormHelperText>
         </FormControl>
 
         <Box display="flex" alignItems="center" gap={1}>

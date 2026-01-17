@@ -416,7 +416,18 @@ def _evaluate(position: PositionRequest):
             status_code=503,
             detail={"reason": f"price history unavailable for {position.index_type.value}"},
         ) from exc
-    current_price = snapshot["current_price"]
+    except Exception as exc:
+        logger.exception(
+            "[evaluate] snapshot failed request_id=%s index=%s error=%s",
+            request_id,
+            position.index_type.value,
+            exc,
+        )
+        raise HTTPException(
+            status_code=500,
+            detail={"reason": "snapshot_failed", "message": str(exc), "request_id": request_id},
+        ) from exc
+    current_price = snapshot.get("current_price", 0.0)
     if not snapshot.get("price_history"):
         logger.error("[evaluate] empty price history request_id=%s index=%s", request_id, position.index_type.value)
         raise HTTPException(
@@ -445,8 +456,8 @@ def _evaluate(position: PositionRequest):
         technical_ok = False
         reasons.extend(["TECHNICAL_CALC_ERROR", "TECHNICAL_UNAVAILABLE"])
 
-    macro_score = snapshot["scores"]["macro"]
-    event_adjustment = snapshot["scores"]["event_adjustment"]
+    macro_score = snapshot.get("scores", {}).get("macro", 0.0)
+    event_adjustment = snapshot.get("scores", {}).get("event_adjustment", 0.0)
 
     if not snapshot.get("macro_details"):
         reasons.append("MACRO_UNAVAILABLE")
@@ -491,26 +502,38 @@ def _evaluate(position: PositionRequest):
             reasons,
         )
 
-    return {
-        "current_price": current_price,
-        "market_value": round(market_value, 2),
-        "unrealized_pnl": round(unrealized_pnl, 2),
-        "status": status,
-        "reasons": reasons,
-        "as_of": as_of,
-        "request_id": request_id,
-        "scores": {
-            "technical": technical_score,
-            "macro": macro_score,
-            "event_adjustment": event_adjustment,
-            "total": total_score,
-            "label": label,
-        },
-        "technical_details": technical_details,
-        "macro_details": snapshot["macro_details"],
-        "event_details": snapshot["event_details"],
-        "price_series": price_series,
-    }
+    try:
+        return {
+            "current_price": current_price,
+            "market_value": round(market_value, 2),
+            "unrealized_pnl": round(unrealized_pnl, 2),
+            "status": status,
+            "reasons": reasons,
+            "as_of": as_of,
+            "request_id": request_id,
+            "scores": {
+                "technical": technical_score,
+                "macro": macro_score,
+                "event_adjustment": event_adjustment,
+                "total": total_score,
+                "label": label,
+            },
+            "technical_details": technical_details,
+            "macro_details": snapshot.get("macro_details", {}),
+            "event_details": snapshot.get("event_details", {}),
+            "price_series": price_series,
+        }
+    except Exception as exc:
+        logger.exception(
+            "[evaluate] response build failed request_id=%s index=%s error=%s",
+            request_id,
+            position.index_type.value,
+            exc,
+        )
+        raise HTTPException(
+            status_code=500,
+            detail={"reason": "evaluate_failed", "message": str(exc), "request_id": request_id},
+        ) from exc
 
 
 @app.post("/api/sp500/evaluate", response_model=EvaluateResponse)
