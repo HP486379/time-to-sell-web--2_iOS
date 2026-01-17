@@ -33,6 +33,14 @@ interface ScoreSummaryCardProps {
     T_trend: number
     T_conv_adj?: number
     convergence?: { side?: 'down_convergence' | 'up_convergence' | 'neutral' }
+    multi_ma?: {
+      dev10?: number | null
+      dev50?: number | null
+      dev200?: number | null
+      level?: number
+      label?: string
+      text?: string
+    }
   }
   macro?: { p_r: number; p_cpi: number; p_vix: number; M: number }
   highlights?: { icon: string; text: string }[]
@@ -80,6 +88,9 @@ function ScoreSummaryCard({
     convergenceSide === 'down_convergence'
       ? '上昇の勢いが弱まり、価格が長期平均（200日線）に近づく動きが出始めています。\n※この兆しはスコアに反映されています。'
       : '下落の勢いが弱まり、価格が長期平均（200日線）に近づく動きが出始めています。\n※この兆しはスコアに反映されています。'
+  const multiMa = technical?.multi_ma
+  const multiMaLevel = multiMa?.level ?? 0
+  const showMultiMaBadge = showConfirmed && multiMaLevel >= 1
 
   return (
     <Card
@@ -146,6 +157,16 @@ function ScoreSummaryCard({
               <Typography variant="h3" color="primary.main" fontWeight={700}>
                 {showConfirmed && scores ? scores.total.toFixed(1) : '--'}
               </Typography>
+            )}
+            {showMultiMaBadge && (
+              <Tooltip title={multiMa?.text ?? ''} arrow>
+                <Chip
+                  size="small"
+                  variant="outlined"
+                  label={multiMa?.label ?? ''}
+                  sx={{ fontSize: '0.7rem' }}
+                />
+              </Tooltip>
             )}
             {showConvergenceBadge && (
               <Box

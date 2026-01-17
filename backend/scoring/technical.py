@@ -212,6 +212,58 @@ def _calc_convergence_adjustment(convergence: Dict[str, Any], amp: float = CONVE
     return 0.0
 
 
+def _build_multi_ma_status(price: float, closes: List[float]) -> Dict[str, Any]:
+    if len(closes) < 200:
+        return {
+            "dev10": None,
+            "dev50": None,
+            "dev200": None,
+            "level": 0,
+            "label": "",
+            "text": "",
+        }
+
+    ma10 = moving_average(closes, 10)[-1]
+    ma50 = moving_average(closes, 50)[-1]
+    ma200 = moving_average(closes, 200)[-1]
+
+    dev10 = price / ma10 - 1
+    dev50 = price / ma50 - 1
+    dev200 = price / ma200 - 1
+
+    th10 = 0.03
+    th50 = 0.05
+    th200 = 0.08
+
+    level = 0
+    label = ""
+    text = ""
+
+    if dev200 >= th200:
+        level = 1
+        label = "出口注意：長期が過熱"
+        text = "長期の乖離が大きく、出口を意識し始める水準です。"
+
+    if dev200 >= th200 and dev50 >= th50:
+        level = 2
+        label = "天井圏・調整兆し"
+        text = "中期も過熱。調整（下落/横ばい）が出やすい状態です。"
+
+    if dev200 >= th200 and dev50 >= th50 and dev10 >= th10:
+        level = 3
+        label = "過熱圏：利確優位"
+        text = "短期も過熱。利確が優位になりやすい出口圏です。"
+
+    return {
+        "dev10": round(dev10, 4),
+        "dev50": round(dev50, 4),
+        "dev200": round(dev200, 4),
+        "level": level,
+        "label": label,
+        "text": text,
+    }
+
+
 def calculate_technical_score(price_history: List[Tuple[str, float]], base_window: int = 200):
     closes = [p[1] for p in price_history]
 
@@ -273,6 +325,8 @@ def calculate_technical_score(price_history: List[Tuple[str, float]], base_windo
 
     technical_score = clip(technical_score_raw + t_conv_adj)
 
+    multi_ma = _build_multi_ma_status(current_price, closes)
+
     return round(technical_score, 2), {
         "d": round(d, 2),
         "T_base": round(t_base, 2),
@@ -284,4 +338,5 @@ def calculate_technical_score(price_history: List[Tuple[str, float]], base_windo
         "ma_base": round(ma_base, 2),
         "convergence": convergence,
         "convergence_adj_max": CONVERGENCE_ADJ_MAX,
+        "multi_ma": multi_ma,
     }

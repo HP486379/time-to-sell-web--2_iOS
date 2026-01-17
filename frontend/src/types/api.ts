@@ -52,6 +52,14 @@ export interface EvaluateResponse {
     convergence?: {
       side?: 'down_convergence' | 'up_convergence' | 'neutral'
     }
+    multi_ma?: {
+      dev10?: number | null
+      dev50?: number | null
+      dev200?: number | null
+      level?: number
+      label?: string
+      text?: string
+    }
   }
   macro_details: {
     p_r: number
