@@ -3,8 +3,9 @@ import type { IndexType } from './index'
 export interface EvaluateRequest {
   total_quantity: number
   avg_cost: number
-  index_type: IndexType
+  index_type: IndexType | string
   score_ma: number
+  request_id?: string
 }
 
 export interface EconomicEvent {
@@ -27,6 +28,15 @@ export interface EvaluateResponse {
   current_price: number
   market_value: number
   unrealized_pnl: number
+  status: 'ready' | 'degraded' | 'error'
+  reasons: string[]
+  as_of: string
+  request_id: string
+  used_index_type: string
+  source: string
+  currency: string
+  unit: string
+  symbol: string
   scores: {
     technical: number
     macro: number
@@ -38,6 +48,18 @@ export interface EvaluateResponse {
     d: number
     T_base: number
     T_trend: number
+    T_conv_adj?: number
+    convergence?: {
+      side?: 'down_convergence' | 'up_convergence' | 'neutral'
+    }
+    multi_ma?: {
+      dev10?: number | null
+      dev50?: number | null
+      dev200?: number | null
+      level?: number
+      label?: string
+      text?: string
+    }
   }
   macro_details: {
     p_r: number
@@ -50,6 +72,7 @@ export interface EvaluateResponse {
     R_max: number
     effective_event: EconomicEvent | null
     events?: EconomicEvent[]
+    warning?: string
   }
   price_series: PricePoint[]
 }
