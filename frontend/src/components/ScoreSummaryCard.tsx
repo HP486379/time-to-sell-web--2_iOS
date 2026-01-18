@@ -75,10 +75,10 @@ function ScoreSummaryCard({
   const gradientStart = isDark ? '#101726' : alpha(theme.palette.primary.light, 0.2)
   const gradientEnd = isDark ? '#0c1b34' : alpha(theme.palette.secondary.light, 0.16)
   const showConfirmed = status === 'ready' || status === 'refreshing'
-  const zoneTextValue = zoneText ?? getScoreZoneText(showConfirmed ? scores?.total : undefined)
+  const exitScore = scores?.exit_total ?? scores?.total
+  const zoneTextValue = zoneText ?? getScoreZoneText(showConfirmed ? exitScore : undefined)
   const showHighlights = highlights.length > 0
   const showDetailsToggle = Boolean(onShowDetails) && expanded !== undefined
-  const exitScore = scores?.exit_total ?? scores?.total
   const periodScore = scores?.period_total ?? scores?.total
   const convergenceSide = technical?.convergence?.side
   const convergenceAdj = technical?.T_conv_adj ?? 0
