@@ -10,9 +10,14 @@ import {
   Tooltip,
   Divider,
   Button,
+  Alert,
+  Chip,
+  Skeleton,
 } from '@mui/material'
 import type { TooltipTexts } from '../tooltipTexts'
 import { getScoreZoneText } from '../utils/alertState'
+
+type EvalStatus = 'loading' | 'ready' | 'degraded' | 'error' | 'refreshing'
 
 interface ScoreSummaryCardProps {
   scores?: {
@@ -21,14 +26,34 @@ interface ScoreSummaryCardProps {
     event_adjustment: number
     total: number
     label: string
+    period_total?: number
+    exit_total?: number
   }
-  technical?: { d: number; T_base: number; T_trend: number }
+  technical?: {
+    d: number
+    T_base: number
+    T_trend: number
+    T_conv_adj?: number
+    convergence?: { side?: 'down_convergence' | 'up_convergence' | 'neutral' }
+    multi_ma?: {
+      dev10?: number | null
+      dev50?: number | null
+      dev200?: number | null
+      level?: number
+      label?: string
+      text?: string
+    }
+  }
   macro?: { p_r: number; p_cpi: number; p_vix: number; M: number }
   highlights?: { icon: string; text: string }[]
   zoneText?: string
   expanded?: boolean
   onShowDetails?: () => void
   tooltips: TooltipTexts
+  status?: EvalStatus
+  statusMessage?: string
+  onRetry?: () => void
+  isRetrying?: boolean
 }
 
 function ScoreSummaryCard({
@@ -40,14 +65,36 @@ function ScoreSummaryCard({
   expanded,
   onShowDetails,
   tooltips,
+  status = 'ready',
+  statusMessage,
+  onRetry,
+  isRetrying = false,
 }: ScoreSummaryCardProps) {
   const theme = useTheme()
   const isDark = theme.palette.mode === 'dark'
   const gradientStart = isDark ? '#101726' : alpha(theme.palette.primary.light, 0.2)
   const gradientEnd = isDark ? '#0c1b34' : alpha(theme.palette.secondary.light, 0.16)
-  const zoneTextValue = zoneText ?? getScoreZoneText(scores?.total)
+  const showConfirmed = status === 'ready' || status === 'refreshing'
+  const zoneTextValue = zoneText ?? getScoreZoneText(showConfirmed ? scores?.total : undefined)
   const showHighlights = highlights.length > 0
   const showDetailsToggle = Boolean(onShowDetails) && expanded !== undefined
+  const exitScore = scores?.exit_total ?? scores?.total
+  const periodScore = scores?.period_total ?? scores?.total
+  const convergenceSide = technical?.convergence?.side
+  const convergenceAdj = technical?.T_conv_adj ?? 0
+  const showConvergenceBadge =
+    convergenceSide !== undefined &&
+    convergenceSide !== 'neutral' &&
+    Math.abs(convergenceAdj) >= 0.5
+  const convergenceLabel =
+    convergenceSide === 'down_convergence' ? '🔸 天井圏・調整兆し' : '🔹 底打ち・反発兆し'
+  const convergenceTooltip =
+    convergenceSide === 'down_convergence'
+      ? '上昇の勢いが弱まり、価格が長期平均（200日線）に近づく動きが出始めています。\n※この兆しはスコアに反映されています。'
+      : '下落の勢いが弱まり、価格が長期平均（200日線）に近づく動きが出始めています。\n※この兆しはスコアに反映されています。'
+  const multiMa = technical?.multi_ma
+  const multiMaLevel = multiMa?.level ?? 0
+  const showMultiMaBadge = showConfirmed && multiMaLevel >= 1
 
   return (
     <Card
@@ -59,27 +106,134 @@ function ScoreSummaryCard({
     >
       <CardContent>
         <Stack spacing={2}>
+          {status === 'degraded' && (
+            <Alert
+              severity="warning"
+              action={
+                onRetry ? (
+                  <Button color="inherit" size="small" onClick={onRetry}>
+                    再取得
+                  </Button>
+                ) : undefined
+              }
+            >
+              <Typography variant="subtitle2" component="div">
+                ⚠ 一部データ取得中
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                {statusMessage ?? '価格履歴の取得が未完了のため、現在のスコアは参考値です。'}
+              </Typography>
+              {isRetrying && (
+                <Typography variant="caption" color="text.secondary">
+                  再試行中…
+                </Typography>
+              )}
+            </Alert>
+          )}
+          {status === 'error' && (
+            <Alert
+              severity="error"
+              action={
+                onRetry ? (
+                  <Button color="inherit" size="small" onClick={onRetry}>
+                    再取得
+                  </Button>
+                ) : undefined
+              }
+            >
+              <Typography variant="subtitle2" component="div">
+                ❌ データ取得に失敗しました
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                {statusMessage ?? '時間をおいて再取得してください。'}
+              </Typography>
+            </Alert>
+          )}
           <Tooltip title={tooltips.score.total} arrow>
             <Typography variant="overline" color="text.secondary" component="div">
               総合スコア
             </Typography>
           </Tooltip>
-          <Typography variant="h3" color="primary.main" fontWeight={700}>
-            {scores ? scores.total.toFixed(1) : '--'}
+          <Stack direction="row" alignItems="center" spacing={1} flexWrap="wrap">
+            {status === 'loading' ? (
+              <Skeleton variant="text" width={120} height={44} />
+            ) : (
+              <Typography variant="h3" color="primary.main" fontWeight={700}>
+                {showConfirmed && exitScore !== undefined ? exitScore.toFixed(1) : '--'}
+              </Typography>
+            )}
+            {showMultiMaBadge && (
+              <Tooltip title={multiMa?.text ?? ''} arrow>
+                <Chip
+                  size="small"
+                  variant="outlined"
+                  label={multiMa?.label ?? ''}
+                  sx={{ fontSize: '0.7rem' }}
+                />
+              </Tooltip>
+            )}
+            {showConvergenceBadge && (
+              <Box
+                title={convergenceTooltip}
+                sx={(theme) => ({
+                  px: 1,
+                  py: 0.25,
+                  borderRadius: 999,
+                  fontSize: '0.7rem',
+                  lineHeight: 1.2,
+                  border: `1px solid ${alpha(theme.palette.text.primary, 0.2)}`,
+                  bgcolor: alpha(theme.palette.text.primary, theme.palette.mode === 'dark' ? 0.08 : 0.04),
+                  color: theme.palette.text.secondary,
+                })}
+              >
+                {convergenceLabel}
+              </Box>
+            )}
+            {status === 'refreshing' && <Chip size="small" color="info" label="更新中…" />}
+          </Stack>
+          <Typography variant="overline" color="text.secondary" component="div">
+            出口接近度
           </Typography>
           <Tooltip title={tooltips.score.label} arrow>
             <Typography variant="subtitle1" color="text.secondary" component="div">
-              {scores?.label ?? '計算待ち'}
+              {showConfirmed ? scores?.label ?? '計算待ち' : status === 'degraded' ? '未確定' : '計算中'}
             </Typography>
           </Tooltip>
           <Typography variant="body2" color="text.secondary">
-            {zoneTextValue}
+            {status === 'loading' ? '⏳ 計算中…' : zoneTextValue}
           </Typography>
+          <Stack direction="row" alignItems="center" spacing={1}>
+            <Typography variant="overline" color="text.secondary" component="div">
+              期間スコア
+            </Typography>
+            {status === 'loading' ? (
+              <Skeleton variant="text" width={80} />
+            ) : (
+              <Typography variant="body1" color="text.primary">
+                {showConfirmed && periodScore !== undefined ? periodScore.toFixed(1) : '--'}
+              </Typography>
+            )}
+          </Stack>
 
           <Stack spacing={1}>
-            <LabelBar label="テクニカル" tooltip={tooltips.score.technical} value={scores?.technical} color="primary" />
-            <LabelBar label="マクロ" tooltip={tooltips.score.macro} value={scores?.macro} color="secondary" />
-            <LabelBar label="イベント補正" tooltip={tooltips.score.event} value={scores?.event_adjustment} color="error" />
+            <LabelBar
+              label="テクニカル"
+              tooltip={tooltips.score.technical}
+              value={showConfirmed ? scores?.technical : undefined}
+              color="primary"
+            />
+            <LabelBar
+              label="マクロ"
+              tooltip={tooltips.score.macro}
+              value={showConfirmed ? scores?.macro : undefined}
+              color="secondary"
+            />
+            <LabelBar
+              label="イベント補正"
+              tooltip={tooltips.score.event}
+              value={showConfirmed ? scores?.event_adjustment : undefined}
+              color="error"
+            />
           </Stack>
 
           {showHighlights && (
