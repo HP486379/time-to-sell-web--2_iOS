@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Grid,
   Card,
@@ -22,6 +22,7 @@ import {
   MenuItem,
   FormHelperText,
   TextField,
+  Skeleton,
 } from '@mui/material'
 import axios from 'axios'
 import dayjs from 'dayjs'
@@ -70,6 +71,7 @@ const REFRESH_INTERVAL_MS = 5 * 60 * 1000
 type DisplayMode = 'pro' | 'simple'
 type StartOption = '1m' | '3m' | '6m' | '1y' | '3y' | '5y' | 'max' | 'custom'
 type PriceDisplayMode = 'normalized' | 'actual'
+type EvalStatus = 'loading' | 'ready' | 'degraded' | 'error' | 'refreshing'
 
 const motionVariants = {
   initial: { opacity: 0, y: -10 },
@@ -97,6 +99,14 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
   const [priceDisplayMode, setPriceDisplayMode] = useState<PriceDisplayMode>('normalized')
   const [positionDialogOpen, setPositionDialogOpen] = useState(false)
   const [priceSeriesMap, setPriceSeriesMap] = useState<Partial<Record<IndexType, PricePoint[]>>>({})
+  const [isEvalRetrying, setIsEvalRetrying] = useState(false)
+  const [evalStatusMap, setEvalStatusMap] = useState<Partial<Record<IndexType, EvalStatus>>>({})
+  const [evalReasonsMap, setEvalReasonsMap] = useState<Partial<Record<IndexType, string[]>>>({})
+  const [evalStatusMessageMap, setEvalStatusMessageMap] = useState<Partial<Record<IndexType, string>>>({})
+  const priceReqSeqRef = useRef(0)
+  const evalReqSeqRef = useRef(0)
+  const evalRetryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const latestEvalRequestIdRef = useRef<Partial<Record<IndexType, string>>>({})
 
   // ★ 追加：イベント用 state
   const [events, setEvents] = useState<EventItem[]>([])
@@ -109,8 +119,22 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
   )
 
   const response = responses[indexType] ?? null
-  const totalScore = response?.scores?.total
+  const evalStatus = evalStatusMap[indexType] ?? (response ? 'ready' : 'loading')
+  const evalReasons = evalReasonsMap[indexType] ?? []
+  const evalStatusMessage = evalStatusMessageMap[indexType]
+  const showScores = evalStatus === 'ready' || evalStatus === 'refreshing'
+  const displayResponse = showScores ? response : null
+  const totalScore = displayResponse?.scores?.exit_total ?? displayResponse?.scores?.total
   const priceSeries = priceSeriesMap[indexType] ?? []
+
+  const handleRetry = () => {
+    setEvalStatusMap((prev) => ({
+      ...prev,
+      [indexType]: response ? 'refreshing' : 'loading',
+    }))
+    setIsEvalRetrying(false)
+    void fetchAll()
+  }
 
   // ★ MA(20/60/200) → チャート開始時点(1m/3m/1y)へのマッピング
   const scoreMaToStartOption = (scoreMa: number): StartOption => {
@@ -119,22 +143,143 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
     return '1y'
   }
 
+  const EVAL_RETRY_DELAYS_MS = [1500, 3000, 6000]
+
+  const genRequestId = () => {
+    try {
+      return crypto.randomUUID()
+    } catch {
+      return `${Date.now()}-${Math.random().toString(16).slice(2)}`
+    }
+  }
+
+  const resolveApiIndexType = (targetIndex: IndexType) => {
+    if (targetIndex === 'sp500_jpy') return 'SP500_JPY'
+    if (targetIndex === 'orukan_jpy') return 'ORUKAN_JPY'
+    return targetIndex
+  }
+
+  const resolveUiStatus = (data: EvaluateResponse): EvalStatus => {
+    const apiStatus = (data.status ?? 'ready') as EvalStatus
+    const reasons = data.reasons ?? []
+    const hasTechUnavailable = reasons.includes('TECHNICAL_UNAVAILABLE')
+    const priceSeriesEmpty = !data.price_series || data.price_series.length === 0
+    const techLooksBroken =
+      (data.scores?.technical === 0 && (data.scores?.macro ?? 0) >= 50) ||
+      data.technical_details?.T_base === undefined
+
+    if (apiStatus === 'error') return 'error'
+    if (apiStatus === 'loading') return 'loading'
+    if (hasTechUnavailable || priceSeriesEmpty || techLooksBroken) return 'degraded'
+
+    return apiStatus
+  }
+
+  const scheduleEvalRetry = (
+    targetIndex: IndexType,
+    payload: Partial<EvaluateRequest> | undefined,
+    markPrimary: boolean,
+    retryCount: number,
+  ) => {
+    if (retryCount >= EVAL_RETRY_DELAYS_MS.length) return
+    if (evalRetryTimeoutRef.current) {
+      clearTimeout(evalRetryTimeoutRef.current)
+    }
+    evalRetryTimeoutRef.current = setTimeout(() => {
+      fetchEvaluation(targetIndex, payload, markPrimary, retryCount + 1)
+    }, EVAL_RETRY_DELAYS_MS[retryCount])
+  }
+
   const fetchEvaluation = async (
     targetIndex: IndexType,
     payload?: Partial<EvaluateRequest>,
     markPrimary = false,
+    retryCount = 0,
   ) => {
+    const reqSeq = ++evalReqSeqRef.current
+    const clientRequestId = genRequestId()
+    latestEvalRequestIdRef.current[targetIndex] = clientRequestId
     try {
-      const body = { ...lastRequest, ...(payload ?? {}), index_type: targetIndex }
-      if (markPrimary) setError(null)
+      const apiIndexType = resolveApiIndexType(targetIndex)
+      const body = { ...lastRequest, ...(payload ?? {}), index_type: apiIndexType, request_id: clientRequestId }
+      if (markPrimary) {
+        setError(null)
+        if (retryCount === 0) {
+          setEvalStatusMap((prev) => ({
+            ...prev,
+            [targetIndex]: response ? 'refreshing' : 'loading',
+          }))
+        }
+      }
       const res = await apiClient.post<EvaluateResponse>('/api/evaluate', body)
+      if (reqSeq !== evalReqSeqRef.current) return
+      if (res.data.request_id !== latestEvalRequestIdRef.current[targetIndex]) return
+      const status = resolveUiStatus(res.data)
+      const reasons = res.data.reasons ?? []
+      let uiMessage: string | undefined
+      if (status === 'degraded') {
+        if (reasons.includes('TECHNICAL_UNAVAILABLE')) {
+          uiMessage = 'テクニカル指標の取得が未完了のため、スコアは確定していません。'
+        } else if (!res.data.price_series || res.data.price_series.length === 0) {
+          uiMessage = '価格履歴の取得が未完了のため、スコアは確定していません。'
+        } else {
+          uiMessage = '一部データ取得中のため、スコアは確定していません。'
+        }
+      }
+      if (markPrimary) {
+        setEvalStatusMap((prev) => ({ ...prev, [targetIndex]: status }))
+        setEvalReasonsMap((prev) => ({ ...prev, [targetIndex]: reasons }))
+        setEvalStatusMessageMap((prev) => ({ ...prev, [targetIndex]: uiMessage ?? '' }))
+      }
+
+      if (status === 'degraded') {
+        if (!markPrimary) return
+        if (retryCount >= EVAL_RETRY_DELAYS_MS.length) {
+          setIsEvalRetrying(false)
+          setEvalStatusMap((prev) => ({ ...prev, [targetIndex]: 'error' }))
+          setError('価格履歴が未確定のためスコアを表示できません。再取得してください。')
+          return
+        }
+        setIsEvalRetrying(true)
+        scheduleEvalRetry(targetIndex, payload, markPrimary, retryCount)
+        return
+      }
+
+      if (status === 'error') {
+        if (markPrimary) {
+          setIsEvalRetrying(false)
+          setError('評価データの取得に失敗しました。再取得してください。')
+        }
+        return
+      }
+
       setResponses((prev) => ({ ...prev, [targetIndex]: res.data }))
       if (targetIndex === indexType && payload)
         setLastRequest((prev) => ({ ...prev, ...payload, index_type: targetIndex }))
-      if (markPrimary) setLastUpdated(new Date())
-    } catch (e: any) {
       if (markPrimary) {
-        setError(e.message)
+        setLastUpdated(new Date())
+        setIsEvalRetrying(false)
+        setEvalStatusMap((prev) => ({ ...prev, [targetIndex]: 'ready' }))
+        setEvalReasonsMap((prev) => ({ ...prev, [targetIndex]: [] }))
+      }
+    } catch (e: any) {
+      if (reqSeq !== evalReqSeqRef.current) return
+      const status = e?.response?.status
+      if (markPrimary) {
+        setIsEvalRetrying(false)
+        setEvalStatusMap((prev) => ({ ...prev, [targetIndex]: 'error' }))
+        setEvalReasonsMap((prev) => ({ ...prev, [targetIndex]: ['PRICE_HISTORY_UNAVAILABLE'] }))
+        setEvalStatusMessageMap((prev) => ({
+          ...prev,
+          [targetIndex]: '価格履歴の取得に失敗しました。再取得してください。',
+        }))
+      }
+      if (markPrimary) {
+        setError(
+          status === 502 || status === 503
+            ? '価格履歴の取得に失敗しました。再取得してください。'
+            : e.message,
+        )
       } else {
         console.error('評価の取得に失敗しました', e)
       }
@@ -155,9 +300,12 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
   }
 
   const fetchPriceSeries = async (targetIndex: IndexType) => {
+    const reqSeq = ++priceReqSeqRef.current
     try {
       const res = await apiClient.get<PricePoint[]>(getPriceHistoryEndpoint(targetIndex))
-      setPriceSeriesMap((prev) => ({ ...prev, [targetIndex]: res.data }))
+      if (reqSeq !== priceReqSeqRef.current) return
+      const sorted = [...res.data].sort((a, b) => a.date.localeCompare(b.date))
+      setPriceSeriesMap((prev) => ({ ...prev, [targetIndex]: sorted }))
     } catch (e: any) {
       console.error('価格履歴取得に失敗しました', e)
     }
@@ -185,33 +333,47 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
     fetchEvaluation(indexType, { score_ma: value }, true)
   }
 
-  const fetchAll = () => {
+  const fetchAll = async () => {
     const targets: IndexType[] = (() => {
       if (indexType === 'ORUKAN' || indexType === 'orukan_jpy') return ['ORUKAN', 'orukan_jpy']
       if (indexType === 'sp500_jpy') return ['SP500', 'sp500_jpy']
       return [indexType]
     })()
 
-    targets.forEach((target) => {
-      const isPrimary = target === indexType
-      fetchEvaluation(target, undefined, isPrimary)
-      fetchPriceSeries(target)
-    })
-    fetchNavs()
+    const primary = indexType
+    const secondaryTargets = targets.filter((target) => target !== primary)
+
+    await fetchPriceSeries(primary)
+    await fetchEvaluation(primary, undefined, true)
+
+    await Promise.all(
+      secondaryTargets.flatMap((target) => [fetchEvaluation(target), fetchPriceSeries(target)]),
+    )
+    await fetchNavs()
   }
 
   useEffect(() => {
-    fetchAll()
-    const id = setInterval(fetchAll, REFRESH_INTERVAL_MS)
+    void fetchAll()
+    const id = setInterval(() => {
+      void fetchAll()
+    }, REFRESH_INTERVAL_MS)
     return () => clearInterval(id)
   }, [lastRequest, indexType])
+
+  useEffect(() => {
+    return () => {
+      if (evalRetryTimeoutRef.current) {
+        clearTimeout(evalRetryTimeoutRef.current)
+      }
+    }
+  }, [])
 
   const lastUpdatedLabel = useMemo(() => {
     if (!lastUpdated) return '未更新'
     return lastUpdated.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })
   }, [lastUpdated])
 
-  const highlights = useMemo(() => buildHighlights(response), [response])
+  const highlights = useMemo(() => buildHighlights(displayResponse), [displayResponse])
 
   const zoneText = useMemo(() => getScoreZoneText(totalScore), [totalScore])
 
@@ -277,7 +439,9 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
     run()
   }, [indexType, priceSeries])
 
-  const scoreMaLabel = displayMode === 'simple' ? '売りの目安（期間）' : 'スコア算出MA'
+  const scoreMaLabel = '想定ホールド期間（出口判定）'
+  const scoreMaTooltip =
+    'たとえば「長期（3か月〜1年）」は、\n3か月〜1年くらい前から売却を考えていた人にとって、\n今が売り場（出口）に近いかどうかを表します。'
   const scoreMaOptions = [
     { value: 20, labelSimple: '短期（2〜6週間）', labelPro: '20日（短期・2〜6週間）' },
     { value: 60, labelSimple: '中期（2〜3か月）', labelPro: '60日（中期・2〜3か月）' },
@@ -285,9 +449,34 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
   ]
   const scoreMaDays = lastRequest.score_ma as ScoreMaDays
 
+  const reasonLabelMap: Record<string, string> = {
+    PRICE_HISTORY_EMPTY: '価格履歴を取得できていません',
+    PRICE_HISTORY_SHORT: '過去データが不足しています',
+    PRICE_HISTORY_UNAVAILABLE: '価格履歴取得が一時的に不安定です',
+    TECHNICAL_FALLBACK_ZERO: 'テクニカル指標を再計算中です',
+    TECHNICAL_CALC_ERROR: 'テクニカル計算に失敗しました',
+    TECHNICAL_UNAVAILABLE: 'テクニカル指標が取得できません',
+    MACRO_UNAVAILABLE: 'マクロ指標の取得に失敗しました',
+    EVENTS_UNAVAILABLE: 'イベント情報の取得に失敗しました',
+  }
+
+  const reasonMessages = evalReasons
+    .map((reason) => reasonLabelMap[reason] ?? reason)
+    .filter((reason, index, array) => array.indexOf(reason) === index)
+    .slice(0, 2)
+
+  const degradedMessage =
+    reasonMessages.length > 0
+      ? `ℹ 状態：${reasonMessages.join(' / ')}`
+      : 'ℹ 状態：データが未確定のためスコアを確定できません'
+
+  const statusMessage =
+    evalStatus === 'error'
+      ? error ?? '評価データの取得に失敗しました。'
+      : evalStatusMessage || degradedMessage
+
   return (
     <Stack spacing={3}>
-      {error && <Alert severity="error">{error}</Alert>}
       <Box
         sx={{
           width: '100%',
@@ -334,29 +523,41 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
 
         <FormControl size="small" sx={{ minWidth: 220 }}>
           <InputLabel id="score-ma-select-label">{scoreMaLabel}</InputLabel>
-          <Select
-            labelId="score-ma-select-label"
-            value={lastRequest.score_ma}
-            label={scoreMaLabel}
-            onChange={(e) => handleScoreMaChange(Number(e.target.value))}
-          >
-            {scoreMaOptions.map(({ value, labelSimple, labelPro }) => (
-              <MenuItem key={value} value={value}>
-                {displayMode === 'simple' ? labelSimple : labelPro}
-              </MenuItem>
-            ))}
-          </Select>
-          {displayMode === 'simple' && (
-            <FormHelperText sx={{ whiteSpace: 'nowrap' }}>
-              この期間を目安に利確タイミングを計算します（短期は反応早め、長期はゆったり）
-            </FormHelperText>
-          )}
+          <Tooltip title={scoreMaTooltip} arrow>
+            <Select
+              labelId="score-ma-select-label"
+              value={lastRequest.score_ma}
+              label={scoreMaLabel}
+              onChange={(e) => handleScoreMaChange(Number(e.target.value))}
+            >
+              {scoreMaOptions.map(({ value, labelSimple, labelPro }) => (
+                <MenuItem key={value} value={value}>
+                  {displayMode === 'simple' ? labelSimple : labelPro}
+                </MenuItem>
+              ))}
+            </Select>
+          </Tooltip>
+          <FormHelperText sx={{ whiteSpace: 'normal', lineHeight: 1.4 }}>
+            ※「何年後に売る」ではありません。
+            <br />
+            そのくらい前から売却を考えていた人にとって、今が出口かどうかを見ます。
+          </FormHelperText>
         </FormControl>
 
         <Box display="flex" alignItems="center" gap={1}>
           <Chip label={`最終更新: ${lastUpdatedLabel}`} size="small" />
+          {evalStatus === 'refreshing' && (
+            <Typography variant="caption" color="text.secondary">
+              更新中…
+            </Typography>
+          )}
+          {evalStatus === 'degraded' && isEvalRetrying && (
+            <Typography variant="caption" color="text.secondary">
+              再取得中…
+            </Typography>
+          )}
           <Tooltip title="最新データを取得" arrow>
-            <IconButton color="primary" onClick={() => fetchAll()}>
+            <IconButton color="primary" onClick={() => void fetchAll()}>
               <RefreshIcon />
             </IconButton>
           </Tooltip>
@@ -371,12 +572,16 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
                 <Grid item xs={12} md={7} sx={{ height: '100%' }}>
                   <Box sx={{ height: '100%' }}>
                     <SimpleAlertCard
-                      scores={response?.scores}
+                      scores={displayResponse?.scores}
                       highlights={highlights}
                       zoneText={zoneText}
                       onShowDetails={() => setShowDetails((prev) => !prev)}
                       expanded={showDetails}
                       tooltips={tooltipTexts}
+                      status={evalStatus}
+                      statusMessage={statusMessage}
+                      onRetry={handleRetry}
+                      isRetrying={isEvalRetrying}
                     />
                   </Box>
                 </Grid>
@@ -388,12 +593,16 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
                 <Grid item xs={12}>
                   <Collapse in={showDetails}>
                     <ScoreSummaryCard
-                      scores={response?.scores}
+                      scores={displayResponse?.scores}
                       highlights={highlights}
                       zoneText={zoneText}
                       onShowDetails={() => setShowDetails((prev) => !prev)}
                       expanded={showDetails}
                       tooltips={tooltipTexts}
+                      status={evalStatus}
+                      statusMessage={statusMessage}
+                      onRetry={handleRetry}
+                      isRetrying={isEvalRetrying}
                     />
                   </Collapse>
                 </Grid>
@@ -401,12 +610,16 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
             ) : (
               <>
                 <Grid item xs={12} md={7} sx={{ height: '100%' }}>
-                  <ScoreSummaryCard
-                    scores={response?.scores}
-                    technical={response?.technical_details}
-                    macro={response?.macro_details}
-                    tooltips={tooltipTexts}
-                  />
+                <ScoreSummaryCard
+                  scores={displayResponse?.scores}
+                  technical={displayResponse?.technical_details}
+                  macro={displayResponse?.macro_details}
+                  tooltips={tooltipTexts}
+                  status={evalStatus}
+                  statusMessage={statusMessage}
+                  onRetry={handleRetry}
+                  isRetrying={isEvalRetrying}
+                />
                 </Grid>
                 <Grid item xs={12} md={5} sx={{ height: '100%' }}>
                   <SellTimingAvatarCard decision={avatarDecision} scoreMaDays={scoreMaDays} />
@@ -484,12 +697,16 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
                 animate="animate"
                 exit="exit"
               >
-                <PriceChart
-                  priceSeries={chartSeries}
-                  simple={displayMode === 'simple'} // proのみ描画なので実質false（互換維持）
-                  tooltips={tooltipTexts}
-                  legendLabels={legendLabels}
-                />
+                {evalStatus === 'ready' || evalStatus === 'refreshing' ? (
+                  <PriceChart
+                    priceSeries={chartSeries}
+                    simple={false} // proのみ描画なので実質false（互換維持）
+                    tooltips={tooltipTexts}
+                    legendLabels={legendLabels}
+                  />
+                ) : (
+                  <Skeleton variant="rounded" height={260} />
+                )}
               </motion.div>
             </AnimatePresence>
           </CardContent>
@@ -514,12 +731,12 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
 
       <Grid container spacing={3}>
         <Grid item xs={12} md={7}>
-          <MacroCards macroDetails={response?.macro_details} tooltips={tooltipTexts} />
+          <MacroCards macroDetails={displayResponse?.macro_details} tooltips={tooltipTexts} />
         </Grid>
         <Grid item xs={12} md={5}>
           {/* ★ イベント一覧：旧 event_details に加えて /api/events の結果も渡す */}
           <EventList
-            eventDetails={response?.event_details}
+            eventDetails={displayResponse?.event_details}
             events={events}
             isLoading={isEventsLoading}
             error={eventsError}
@@ -546,8 +763,8 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
                   fetchEvaluation(indexType, req, true)
                   setPositionDialogOpen(false)
                 }}
-                marketValue={response?.market_value}
-                pnl={response?.unrealized_pnl}
+                marketValue={displayResponse?.market_value}
+                pnl={displayResponse?.unrealized_pnl}
                 syntheticNav={syntheticNav}
                 fundNav={fundNav}
                 tooltips={tooltipTexts}
