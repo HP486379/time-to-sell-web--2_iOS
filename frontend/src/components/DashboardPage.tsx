@@ -44,6 +44,7 @@ import { buildTooltips } from '../tooltipTexts'
 import RefreshIcon from '@mui/icons-material/Refresh'
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined'
 import SimpleAlertCard from './SimpleAlertCard'
+import HoverTooltip from './HoverTooltip'
 import { type ScoreMaDays } from '../constants/maAvatarMap'
 import { INDEX_LABELS, PRICE_TITLE_MAP, type IndexType } from '../types/index'
 import { getScoreZoneText } from '../utils/alertState'
@@ -530,19 +531,28 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
             }}
           >
             <Tab
-              label="短期目線"
+              label={
+                <HoverTooltip content={timeAxisNote} placement="top">
+                  <span>短期目線</span>
+                </HoverTooltip>
+              }
               value={20}
-              title={timeAxisNote}
             />
             <Tab
-              label="中期目線"
+              label={
+                <HoverTooltip content={timeAxisNote} placement="top">
+                  <span>中期目線</span>
+                </HoverTooltip>
+              }
               value={60}
-              title={timeAxisNote}
             />
             <Tab
-              label="長期目線"
+              label={
+                <HoverTooltip content={timeAxisNote} placement="top">
+                  <span>長期目線</span>
+                </HoverTooltip>
+              }
               value={200}
-              title={timeAxisNote}
             />
           </Tabs>
         </Box>
