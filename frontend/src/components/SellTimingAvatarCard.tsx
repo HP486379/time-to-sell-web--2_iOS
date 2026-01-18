@@ -1,6 +1,4 @@
 import { Card, CardContent, Typography, Box, useTheme } from '@mui/material'
-import { alpha } from '@mui/material/styles'
-import TimeHorizonScale from './TimeHorizonScale'
 import UridokiKunAvatar from './UridokiKunAvatar'
 import { MA_PERSONA } from '../constants/maPersona'
 import { type Decision } from '../domain/decision'
@@ -14,15 +12,13 @@ export type SellTimingAvatarCardProps = {
 export default function SellTimingAvatarCard({ decision, scoreMaDays }: SellTimingAvatarCardProps) {
   const theme = useTheme()
   const maPersona = MA_PERSONA[scoreMaDays]
-  const badgeBg = alpha(theme.palette.background.paper, theme.palette.mode === 'dark' ? 0.8 : 0.9)
-  const badgeBorder = alpha(theme.palette.text.primary, theme.palette.mode === 'dark' ? 0.25 : 0.12)
-  const copyBg = alpha(theme.palette.text.primary, theme.palette.mode === 'dark' ? 0.12 : 0.06)
+  const badgeBg = theme.palette.mode === 'dark' ? 'rgba(32, 36, 44, 0.8)' : 'rgba(255, 255, 255, 0.9)'
+  const badgeBorder = theme.palette.mode === 'dark' ? 'rgba(255, 255, 255, 0.25)' : 'rgba(0, 0, 0, 0.12)'
 
   return (
     <Card sx={{ height: '100%' }}>
       <CardContent sx={{ height: '100%', display: 'flex', flexDirection: 'column', gap: 1 }}>
         <Box sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1.5 }}>
-          <TimeHorizonScale active={scoreMaDays} />
           <Box textAlign="center" sx={{ width: '100%' }}>
             <Box
               position="relative"
@@ -68,13 +64,6 @@ export default function SellTimingAvatarCard({ decision, scoreMaDays }: SellTimi
               売り時くん
             </Typography>
             <Typography
-              variant="body2"
-              color="text.secondary"
-              sx={{ textAlign: 'center', whiteSpace: 'normal', wordBreak: 'break-word' }}
-            >
-              {`${maPersona.label}視点（${maPersona.duration}）で見ています`}
-            </Typography>
-            <Typography
               variant="caption"
               color="text.secondary"
               sx={{ display: 'block', mt: 0.5, textAlign: 'center', whiteSpace: 'normal', wordBreak: 'break-word' }}
@@ -82,22 +71,6 @@ export default function SellTimingAvatarCard({ decision, scoreMaDays }: SellTimi
               スコアに応じて表示が変わります
             </Typography>
           </Box>
-        </Box>
-        <Box
-          sx={{
-            p: 2,
-            borderRadius: 2,
-            backgroundColor: copyBg,
-            border: `1px solid ${badgeBorder}`,
-            mt: 'auto',
-          }}
-        >
-          <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
-            {maPersona.copyTitle}
-          </Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', whiteSpace: 'normal', wordBreak: 'break-word' }}>
-            {maPersona.copyBody}
-          </Typography>
         </Box>
       </CardContent>
     </Card>
