@@ -49,6 +49,8 @@ interface ScoreSummaryCardProps {
   zoneText?: string
   expanded?: boolean
   onShowDetails?: () => void
+  viewLabel?: string
+  viewTooltip?: string
   tooltips: TooltipTexts
   status?: EvalStatus
   statusMessage?: string
@@ -64,6 +66,8 @@ function ScoreSummaryCard({
   zoneText,
   expanded,
   onShowDetails,
+  viewLabel = '短期目線',
+  viewTooltip,
   tooltips,
   status = 'ready',
   statusMessage,
@@ -203,9 +207,11 @@ function ScoreSummaryCard({
             {status === 'loading' ? '⏳ 計算中…' : zoneTextValue}
           </Typography>
           <Stack direction="row" alignItems="center" spacing={1}>
-            <Typography variant="overline" color="text.secondary" component="div">
-              期間スコア
-            </Typography>
+            <Tooltip title={viewTooltip ?? ''} arrow>
+              <Typography variant="overline" color="text.secondary" component="div">
+                {viewLabel}での評価
+              </Typography>
+            </Tooltip>
             {status === 'loading' ? (
               <Skeleton variant="text" width={80} />
             ) : (

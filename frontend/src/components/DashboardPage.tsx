@@ -439,15 +439,53 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
     run()
   }, [indexType, priceSeries])
 
-  const scoreMaLabel = '想定ホールド期間（出口判定）'
+  const scoreMaLabel = '総合スコアの時間的な見え方'
   const scoreMaTooltip =
-    'たとえば「長期（3か月〜1年）」は、\n3か月〜1年くらい前から売却を考えていた人にとって、\n今が売り場（出口）に近いかどうかを表します。'
+    '総合スコアは「今どうすべきか」の結論です。\nここでは、その判断の背景を時間軸ごとに見ることができます。'
   const scoreMaOptions = [
-    { value: 20, labelSimple: '短期（2〜6週間）', labelPro: '20日（短期・2〜6週間）' },
-    { value: 60, labelSimple: '中期（2〜3か月）', labelPro: '60日（中期・2〜3か月）' },
-    { value: 200, labelSimple: '長期（3か月〜1年）', labelPro: '200日（長期・3か月〜1年）' },
+    { value: 20, labelSimple: '短期目線', labelPro: '短期目線' },
+    { value: 60, labelSimple: '中期目線', labelPro: '中期目線' },
+    { value: 200, labelSimple: '長期目線', labelPro: '長期目線' },
   ]
   const scoreMaDays = lastRequest.score_ma as ScoreMaDays
+  const viewLabelMap: Record<ScoreMaDays, string> = {
+    20: '短期目線',
+    60: '中期目線',
+    200: '長期目線',
+  }
+  const viewTooltipMap: Record<ScoreMaDays, string> = {
+    20: 'MA20・短期乖離・勢い（今すぐ過熱してる？）',
+    60: 'MA60・波の天井感（数ヶ月スパンで見てどう？）',
+    200: 'MA200・大局（長期保有者にとって危険？）',
+  }
+  const viewLabel = viewLabelMap[scoreMaDays]
+  const viewTooltip = viewTooltipMap[scoreMaDays]
+
+  const reasonLabelMap: Record<string, string> = {
+    PRICE_HISTORY_EMPTY: '価格履歴を取得できていません',
+    PRICE_HISTORY_SHORT: '過去データが不足しています',
+    PRICE_HISTORY_UNAVAILABLE: '価格履歴取得が一時的に不安定です',
+    TECHNICAL_FALLBACK_ZERO: 'テクニカル指標を再計算中です',
+    TECHNICAL_CALC_ERROR: 'テクニカル計算に失敗しました',
+    TECHNICAL_UNAVAILABLE: 'テクニカル指標が取得できません',
+    MACRO_UNAVAILABLE: 'マクロ指標の取得に失敗しました',
+    EVENTS_UNAVAILABLE: 'イベント情報の取得に失敗しました',
+  }
+
+  const reasonMessages = evalReasons
+    .map((reason) => reasonLabelMap[reason] ?? reason)
+    .filter((reason, index, array) => array.indexOf(reason) === index)
+    .slice(0, 2)
+
+  const degradedMessage =
+    reasonMessages.length > 0
+      ? `ℹ 状態：${reasonMessages.join(' / ')}`
+      : 'ℹ 状態：データが未確定のためスコアを確定できません'
+
+  const statusMessage =
+    evalStatus === 'error'
+      ? error ?? '評価データの取得に失敗しました。'
+      : evalStatusMessage || degradedMessage
 
   const reasonLabelMap: Record<string, string> = {
     PRICE_HISTORY_EMPTY: '価格履歴を取得できていません',
@@ -538,9 +576,9 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
             </Select>
           </Tooltip>
           <FormHelperText sx={{ whiteSpace: 'normal', lineHeight: 1.4 }}>
-            ※「何年後に売る」ではありません。
+            総合スコアは「今どうすべきか」の結論です。
             <br />
-            そのくらい前から売却を考えていた人にとって、今が出口かどうかを見ます。
+            ここでは、その判断の背景を時間軸ごとに見ることができます。
           </FormHelperText>
         </FormControl>
 
@@ -598,6 +636,8 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
                       zoneText={zoneText}
                       onShowDetails={() => setShowDetails((prev) => !prev)}
                       expanded={showDetails}
+                      viewLabel={viewLabel}
+                      viewTooltip={viewTooltip}
                       tooltips={tooltipTexts}
                       status={evalStatus}
                       statusMessage={statusMessage}
@@ -614,6 +654,8 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
                   scores={displayResponse?.scores}
                   technical={displayResponse?.technical_details}
                   macro={displayResponse?.macro_details}
+                  viewLabel={viewLabel}
+                  viewTooltip={viewTooltip}
                   tooltips={tooltipTexts}
                   status={evalStatus}
                   statusMessage={statusMessage}
