@@ -1,6 +1,5 @@
 import { Card, CardContent, Typography, Box, useTheme } from '@mui/material'
 import { alpha } from '@mui/material/styles'
-import TimeHorizonScale from './TimeHorizonScale'
 import UridokiKunAvatar from './UridokiKunAvatar'
 import { MA_PERSONA } from '../constants/maPersona'
 import { type Decision } from '../domain/decision'
@@ -22,7 +21,6 @@ export default function SellTimingAvatarCard({ decision, scoreMaDays }: SellTimi
     <Card sx={{ height: '100%' }}>
       <CardContent sx={{ height: '100%', display: 'flex', flexDirection: 'column', gap: 1 }}>
         <Box sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1.5 }}>
-          <TimeHorizonScale active={scoreMaDays} />
           <Box textAlign="center" sx={{ width: '100%' }}>
             <Box
               position="relative"
