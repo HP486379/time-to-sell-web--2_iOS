@@ -504,16 +504,9 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
   const timeAxisCard = (
     <Card>
       <CardContent>
-        <Stack direction="row" alignItems="center" spacing={1} mb={1}>
-          <Typography variant="subtitle1" fontWeight={700}>
-            総合スコアの時間的な見え方
-          </Typography>
-          <Tooltip title={timeAxisNote} arrow>
-            <IconButton size="small" aria-label="総合スコアの時間的な見え方の注記">
-              <InfoOutlinedIcon fontSize="small" />
-            </IconButton>
-          </Tooltip>
-        </Stack>
+        <Typography variant="subtitle1" fontWeight={700} gutterBottom>
+          総合スコアの時間的な見え方
+        </Typography>
         <Typography variant="body2" color="text.secondary">
           総合スコアは「今どうすべきか」の結論です。
           <br />
@@ -525,9 +518,15 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
             onChange={(_, value) => handleScoreMaChange(Number(value))}
             variant="fullWidth"
           >
-            <Tab label="短期目線" value={20} />
-            <Tab label="中期目線" value={60} />
-            <Tab label="長期目線" value={200} />
+            <Tooltip title={timeAxisNote} arrow>
+              <Tab label="短期目線" value={20} />
+            </Tooltip>
+            <Tooltip title={timeAxisNote} arrow>
+              <Tab label="中期目線" value={60} />
+            </Tooltip>
+            <Tooltip title={timeAxisNote} arrow>
+              <Tab label="長期目線" value={200} />
+            </Tooltip>
           </Tabs>
         </Box>
         <Stack spacing={1} mt={2}>
