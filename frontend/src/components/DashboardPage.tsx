@@ -457,31 +457,22 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
     60: '中期目線',
     200: '長期目線',
   }
-  const viewDescriptionMap: Record<ScoreMaDays, { title: string; lines: string[] }> = {
-    20: {
-      title: '短期目線（2〜6週間）',
-      lines: [
-        '短期目線では、直近の値動きや過熱感、イベントの影響を重視します。',
-        '「今すぐ動くべきか」「一時的な調整が入りそうか」といった直近のリスクを確認する視点です。',
-        '短期的なノイズも多いため、ここでの判断はタイミング調整の意味合いが強くなります。',
-      ],
-    },
-    60: {
-      title: '中期目線（1〜3か月）',
-      lines: [
-        '中期目線では、トレンドの持続性や環境の変化を重視します。',
-        '短期のブレをならしながら、「流れとしてどうか？」を判断する視点です。',
-        'この視点は、売り・保有・様子見の判断の中心になります。',
-      ],
-    },
-    200: {
-      title: '長期目線（3か月〜1年）',
-      lines: [
-        '長期目線では、過去の平均水準や構造的な割高・割安感を重視します。',
-        '「今は歴史的に見てどの位置か？」という俯瞰の視点です。',
-        'ここでの判断は、天井圏か、まだ余地があるかを確認する意味合いになります。',
-      ],
-    },
+  const viewDescriptionMap: Record<ScoreMaDays, string[]> = {
+    20: [
+      '短期目線では、直近の値動きや過熱感、イベントの影響を重視します。',
+      '「今すぐ動くべきか」「一時的な調整が入りそうか」といった直近のリスクを確認する視点です。',
+      '短期的なノイズも多いため、ここでの判断はタイミング調整の意味合いが強くなります。',
+    ],
+    60: [
+      '中期目線では、トレンドの持続性や環境の変化を重視します。',
+      '短期のブレをならしながら、「流れとしてどうか？」を判断する視点です。',
+      'この視点は、売り・保有・様子見の判断の中心になります。',
+    ],
+    200: [
+      '長期目線では、過去の平均水準や構造的な割高・割安感を重視します。',
+      '「今は歴史的に見てどの位置か？」という俯瞰の視点です。',
+      'ここでの判断は、天井圏か、まだ余地があるかを確認する意味合いになります。',
+    ],
   }
   const viewTooltipMap: Record<ScoreMaDays, string> = {
     20: 'MA20・短期乖離・勢い（今すぐ過熱してる？）',
@@ -490,7 +481,7 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
   }
   const viewLabel = viewLabelMap[scoreMaDays]
   const viewTooltip = viewTooltipMap[scoreMaDays]
-  const viewDescription = viewDescriptionMap[scoreMaDays]
+  const viewDescriptionLines = viewDescriptionMap[scoreMaDays]
 
   const reasonMessages = evalReasons
     .map((reason) => reasonLabelMap[reason] ?? reason)
@@ -624,18 +615,17 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
                           <br />
                           ここでは「なぜその判断になっているのか」を視点ごとに説明しています。
                         </Typography>
-                        <Box mt={2}>
-                          <Typography variant="subtitle2" fontWeight={700} gutterBottom>
-                            {viewDescription.title}
-                          </Typography>
-                          <Stack spacing={1}>
-                            {viewDescription.lines.map((line, index) => (
-                              <Typography key={`${viewDescription.title}-${index}`} variant="body2" color="text.secondary">
-                                {line}
-                              </Typography>
-                            ))}
-                          </Stack>
-                        </Box>
+                        <Stack spacing={1} mt={2}>
+                          {viewDescriptionLines.map((line, index) => (
+                            <Typography
+                              key={`view-description-simple-${index}`}
+                              variant="body2"
+                              color="text.secondary"
+                            >
+                              {line}
+                            </Typography>
+                          ))}
+                        </Stack>
                       </CardContent>
                     </Card>
                   </Stack>
@@ -705,18 +695,17 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
                           <br />
                           ここでは「なぜその判断になっているのか」を視点ごとに説明しています。
                         </Typography>
-                        <Box mt={2}>
-                          <Typography variant="subtitle2" fontWeight={700} gutterBottom>
-                            {viewDescription.title}
-                          </Typography>
-                          <Stack spacing={1}>
-                            {viewDescription.lines.map((line, index) => (
-                              <Typography key={`${viewDescription.title}-${index}`} variant="body2" color="text.secondary">
-                                {line}
-                              </Typography>
-                            ))}
-                          </Stack>
-                        </Box>
+                        <Stack spacing={1} mt={2}>
+                          {viewDescriptionLines.map((line, index) => (
+                            <Typography
+                              key={`view-description-pro-${index}`}
+                              variant="body2"
+                              color="text.secondary"
+                            >
+                              {line}
+                            </Typography>
+                          ))}
+                        </Stack>
                       </CardContent>
                     </Card>
                   </Stack>
