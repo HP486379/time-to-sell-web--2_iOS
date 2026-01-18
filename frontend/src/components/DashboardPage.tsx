@@ -42,6 +42,7 @@ import MacroCards from './MacroCards'
 import EventList from './EventList'
 import { buildTooltips } from '../tooltipTexts'
 import RefreshIcon from '@mui/icons-material/Refresh'
+import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined'
 import SimpleAlertCard from './SimpleAlertCard'
 import { type ScoreMaDays } from '../constants/maAvatarMap'
 import { INDEX_LABELS, PRICE_TITLE_MAP, type IndexType } from '../types/index'
@@ -498,6 +499,48 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
       ? error ?? '評価データの取得に失敗しました。'
       : evalStatusMessage || degradedMessage
 
+  const timeAxisNote =
+    '※ どの目線を選んでも、総合スコア自体は変わりません。ここでは「なぜその判断になっているのか」を視点ごとに説明しています。'
+  const timeAxisCard = (
+    <Card>
+      <CardContent>
+        <Stack direction="row" alignItems="center" spacing={1} mb={1}>
+          <Typography variant="subtitle1" fontWeight={700}>
+            総合スコアの時間的な見え方
+          </Typography>
+          <Tooltip title={timeAxisNote} arrow>
+            <IconButton size="small" aria-label="総合スコアの時間的な見え方の注記">
+              <InfoOutlinedIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+        </Stack>
+        <Typography variant="body2" color="text.secondary">
+          総合スコアは「今どうすべきか」の結論です。
+          <br />
+          ここでは、その判断の背景を時間軸ごとに見ることができます。
+        </Typography>
+        <Box mt={2}>
+          <Tabs
+            value={scoreMaDays}
+            onChange={(_, value) => handleScoreMaChange(Number(value))}
+            variant="fullWidth"
+          >
+            <Tab label="短期目線" value={20} />
+            <Tab label="中期目線" value={60} />
+            <Tab label="長期目線" value={200} />
+          </Tabs>
+        </Box>
+        <Stack spacing={1} mt={2}>
+          {viewDescriptionLines.map((line, index) => (
+            <Typography key={`view-description-${index}`} variant="body2" color="text.secondary">
+              {line}
+            </Typography>
+          ))}
+        </Stack>
+      </CardContent>
+    </Card>
+  )
+
   return (
     <Stack spacing={3}>
       <Box
@@ -570,7 +613,7 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
             {displayMode === 'simple' ? (
               <>
                 <Grid item xs={12} md={7} sx={{ height: '100%' }}>
-                  <Box sx={{ height: '100%' }}>
+                  <Stack spacing={2} sx={{ height: '100%' }}>
                     <SimpleAlertCard
                       scores={displayResponse?.scores}
                       highlights={highlights}
@@ -583,52 +626,12 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
                       onRetry={handleRetry}
                       isRetrying={isEvalRetrying}
                     />
-                  </Box>
+                    {timeAxisCard}
+                  </Stack>
                 </Grid>
 
                 <Grid item xs={12} md={5} sx={{ height: '100%' }}>
-                  <Stack spacing={2}>
-                    <SellTimingAvatarCard decision={avatarDecision} scoreMaDays={scoreMaDays} />
-                    <Card>
-                      <CardContent>
-                        <Typography variant="subtitle1" fontWeight={700} gutterBottom>
-                          総合スコアの時間的な見え方
-                        </Typography>
-                        <Typography variant="body2" color="text.secondary">
-                          総合スコアは「今どうすべきか」の結論です。
-                          <br />
-                          ここでは、その判断の背景を時間軸ごとに見ることができます。
-                        </Typography>
-                        <Box mt={2}>
-                          <Tabs
-                            value={scoreMaDays}
-                            onChange={(_, value) => handleScoreMaChange(Number(value))}
-                            variant="fullWidth"
-                          >
-                            <Tab label="短期目線" value={20} />
-                            <Tab label="中期目線" value={60} />
-                            <Tab label="長期目線" value={200} />
-                          </Tabs>
-                        </Box>
-                        <Typography variant="caption" color="text.secondary" display="block" mt={1.5}>
-                          ※ どの目線を選んでも、総合スコア自体は変わりません。
-                          <br />
-                          ここでは「なぜその判断になっているのか」を視点ごとに説明しています。
-                        </Typography>
-                        <Stack spacing={1} mt={2}>
-                          {viewDescriptionLines.map((line, index) => (
-                            <Typography
-                              key={`view-description-simple-${index}`}
-                              variant="body2"
-                              color="text.secondary"
-                            >
-                              {line}
-                            </Typography>
-                          ))}
-                        </Stack>
-                      </CardContent>
-                    </Card>
-                  </Stack>
+                  <SellTimingAvatarCard decision={avatarDecision} />
                 </Grid>
 
                 <Grid item xs={12}>
@@ -653,62 +656,24 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
             ) : (
               <>
                 <Grid item xs={12} md={7} sx={{ height: '100%' }}>
-                <ScoreSummaryCard
-                  scores={displayResponse?.scores}
-                  technical={displayResponse?.technical_details}
-                  macro={displayResponse?.macro_details}
-                  viewLabel={viewLabel}
-                  viewTooltip={viewTooltip}
-                  tooltips={tooltipTexts}
-                  status={evalStatus}
-                  statusMessage={statusMessage}
-                  onRetry={handleRetry}
-                  isRetrying={isEvalRetrying}
-                />
+                  <Stack spacing={2} sx={{ height: '100%' }}>
+                    <ScoreSummaryCard
+                      scores={displayResponse?.scores}
+                      technical={displayResponse?.technical_details}
+                      macro={displayResponse?.macro_details}
+                      viewLabel={viewLabel}
+                      viewTooltip={viewTooltip}
+                      tooltips={tooltipTexts}
+                      status={evalStatus}
+                      statusMessage={statusMessage}
+                      onRetry={handleRetry}
+                      isRetrying={isEvalRetrying}
+                    />
+                    {timeAxisCard}
+                  </Stack>
                 </Grid>
                 <Grid item xs={12} md={5} sx={{ height: '100%' }}>
-                  <Stack spacing={2}>
-                    <SellTimingAvatarCard decision={avatarDecision} scoreMaDays={scoreMaDays} />
-                    <Card>
-                      <CardContent>
-                        <Typography variant="subtitle1" fontWeight={700} gutterBottom>
-                          総合スコアの時間的な見え方
-                        </Typography>
-                        <Typography variant="body2" color="text.secondary">
-                          総合スコアは「今どうすべきか」の結論です。
-                          <br />
-                          ここでは、その判断の背景を時間軸ごとに見ることができます。
-                        </Typography>
-                        <Box mt={2}>
-                          <Tabs
-                            value={scoreMaDays}
-                            onChange={(_, value) => handleScoreMaChange(Number(value))}
-                            variant="fullWidth"
-                          >
-                            <Tab label="短期目線" value={20} />
-                            <Tab label="中期目線" value={60} />
-                            <Tab label="長期目線" value={200} />
-                          </Tabs>
-                        </Box>
-                        <Typography variant="caption" color="text.secondary" display="block" mt={1.5}>
-                          ※ どの目線を選んでも、総合スコア自体は変わりません。
-                          <br />
-                          ここでは「なぜその判断になっているのか」を視点ごとに説明しています。
-                        </Typography>
-                        <Stack spacing={1} mt={2}>
-                          {viewDescriptionLines.map((line, index) => (
-                            <Typography
-                              key={`view-description-pro-${index}`}
-                              variant="body2"
-                              color="text.secondary"
-                            >
-                              {line}
-                            </Typography>
-                          ))}
-                        </Stack>
-                      </CardContent>
-                    </Card>
-                  </Stack>
+                  <SellTimingAvatarCard decision={avatarDecision} />
                 </Grid>
               </>
             )}
