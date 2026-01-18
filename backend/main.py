@@ -101,6 +101,8 @@ class EvaluateResponse(BaseModel):
     currency: str
     unit: str
     symbol: str
+    period_scores: dict
+    period_meta: dict
     scores: dict
     technical_details: dict
     macro_details: dict
@@ -456,17 +458,6 @@ def _evaluate(position: PositionRequest):
     elif len(price_series) < MIN_PRICE_POINTS:
         reasons.append("PRICE_HISTORY_SHORT")
 
-    try:
-        technical_score, technical_details = calculate_technical_score(
-            price_history, base_window=position.score_ma
-        )
-        technical_ok = True
-    except Exception:
-        logger.exception("[evaluate] technical calc failed request_id=%s index=%s", request_id, position.index_type.value)
-        technical_score, technical_details = 0.0, {}
-        technical_ok = False
-        reasons.extend(["TECHNICAL_CALC_ERROR", "TECHNICAL_UNAVAILABLE"])
-
     macro_score = snapshot.get("scores", {}).get("macro", 0.0)
     event_adjustment = snapshot.get("scores", {}).get("event_adjustment", 0.0)
 
@@ -479,15 +470,87 @@ def _evaluate(position: PositionRequest):
     # 超長期ガードに必要なMAのみ内部で計算（APIに露出しない）
     ma500, ma1000 = calculate_ultra_long_mas(price_history)
     guard_price = price_history[-1][1]
-    total_score = calculate_total_score(
-        technical_score,
-        macro_score,
-        event_adjustment,
-        current_price=guard_price,
-        ma500=ma500,
-        ma1000=ma1000,
+    period_windows = {
+        "short": 20,
+        "mid": 60,
+        "long": 200,
+    }
+    period_meta = {
+        "short_window": period_windows["short"],
+        "mid_window": period_windows["mid"],
+        "long_window": period_windows["long"],
+    }
+    technical_scores: dict[str, float] = {}
+    technical_details = {}
+    technical_ok = True
+    technical_score = 0.0
+
+    for key, window in period_windows.items():
+        try:
+            score, details = calculate_technical_score(price_history, base_window=window)
+            technical_scores[key] = score
+            if window == position.score_ma:
+                technical_score = score
+                technical_details = details
+        except Exception:
+            logger.exception(
+                "[evaluate] technical calc failed request_id=%s index=%s window=%s",
+                request_id,
+                position.index_type.value,
+                window,
+            )
+            technical_scores[key] = 0.0
+            if window == position.score_ma:
+                technical_score = 0.0
+                technical_details = {}
+            technical_ok = False
+            reasons.extend(["TECHNICAL_CALC_ERROR", "TECHNICAL_UNAVAILABLE"])
+
+    period_scores = {
+        key: calculate_total_score(
+            technical_scores[key],
+            macro_score,
+            event_adjustment,
+            current_price=guard_price,
+            ma500=ma500,
+            ma1000=ma1000,
+        )
+        for key in period_windows
+    }
+    selected_key = (
+        "short"
+        if position.score_ma == period_windows["short"]
+        else "mid"
+        if position.score_ma == period_windows["mid"]
+        else "long"
     )
-    label = get_label(total_score)
+    period_total = period_scores[selected_key]
+    base_score = (
+        0.2 * period_scores["short"]
+        + 0.3 * period_scores["mid"]
+        + 0.5 * period_scores["long"]
+    )
+    if (
+        period_scores["short"] >= 80
+        and period_scores["mid"] >= 80
+        and period_scores["long"] >= 80
+    ):
+        bonus = 10
+    elif (
+        period_scores["short"] >= 70
+        and period_scores["mid"] >= 70
+        and period_scores["long"] >= 70
+    ):
+        bonus = 6
+    elif period_scores["mid"] >= 70 and period_scores["long"] >= 70:
+        bonus = 3
+    elif period_scores["short"] >= 70 and period_scores["mid"] >= 70:
+        bonus = 2
+    else:
+        bonus = 0
+
+    exit_total = max(0.0, min(base_score + bonus, 100.0))
+    label = get_label(exit_total)
     logger.info(
         "[evaluate] price history ready request_id=%s index=%s points=%d",
         request_id,
@@ -540,12 +603,16 @@ def _evaluate(position: PositionRequest):
             "currency": currency,
             "unit": unit,
             "symbol": series_symbol,
+            "period_scores": period_scores,
+            "period_meta": period_meta,
             "scores": {
                 "technical": technical_score,
                 "macro": macro_score,
                 "event_adjustment": event_adjustment,
-                "total": total_score,
+                "total": period_total,
                 "label": label,
+                "period_total": period_total,
+                "exit_total": exit_total,
             },
             "technical_details": technical_details,
             "macro_details": snapshot.get("macro_details", {}),

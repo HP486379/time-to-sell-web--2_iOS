@@ -43,6 +43,18 @@ export interface EvaluateResponse {
     event_adjustment: number
     total: number
     label: string
+    period_total?: number
+    exit_total?: number
+  }
+  period_scores?: {
+    short: number
+    mid: number
+    long: number
+  }
+  period_meta?: {
+    short_window: number
+    mid_window: number
+    long_window: number
   }
   technical_details: {
     d: number

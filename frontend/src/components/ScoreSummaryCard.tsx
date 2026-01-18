@@ -26,6 +26,8 @@ interface ScoreSummaryCardProps {
     event_adjustment: number
     total: number
     label: string
+    period_total?: number
+    exit_total?: number
   }
   technical?: {
     d: number
@@ -76,6 +78,8 @@ function ScoreSummaryCard({
   const zoneTextValue = zoneText ?? getScoreZoneText(showConfirmed ? scores?.total : undefined)
   const showHighlights = highlights.length > 0
   const showDetailsToggle = Boolean(onShowDetails) && expanded !== undefined
+  const exitScore = scores?.exit_total ?? scores?.total
+  const periodScore = scores?.period_total ?? scores?.total
   const convergenceSide = technical?.convergence?.side
   const convergenceAdj = technical?.T_conv_adj ?? 0
   const showConvergenceBadge =
@@ -155,7 +159,7 @@ function ScoreSummaryCard({
               <Skeleton variant="text" width={120} height={44} />
             ) : (
               <Typography variant="h3" color="primary.main" fontWeight={700}>
-                {showConfirmed && scores ? scores.total.toFixed(1) : '--'}
+                {showConfirmed && exitScore !== undefined ? exitScore.toFixed(1) : '--'}
               </Typography>
             )}
             {showMultiMaBadge && (
@@ -187,6 +191,9 @@ function ScoreSummaryCard({
             )}
             {status === 'refreshing' && <Chip size="small" color="info" label="更新中…" />}
           </Stack>
+          <Typography variant="overline" color="text.secondary" component="div">
+            出口接近度
+          </Typography>
           <Tooltip title={tooltips.score.label} arrow>
             <Typography variant="subtitle1" color="text.secondary" component="div">
               {showConfirmed ? scores?.label ?? '計算待ち' : status === 'degraded' ? '未確定' : '計算中'}
@@ -195,6 +202,18 @@ function ScoreSummaryCard({
           <Typography variant="body2" color="text.secondary">
             {status === 'loading' ? '⏳ 計算中…' : zoneTextValue}
           </Typography>
+          <Stack direction="row" alignItems="center" spacing={1}>
+            <Typography variant="overline" color="text.secondary" component="div">
+              期間スコア
+            </Typography>
+            {status === 'loading' ? (
+              <Skeleton variant="text" width={80} />
+            ) : (
+              <Typography variant="body1" color="text.primary">
+                {showConfirmed && periodScore !== undefined ? periodScore.toFixed(1) : '--'}
+              </Typography>
+            )}
+          </Stack>
 
           <Stack spacing={1}>
             <LabelBar
