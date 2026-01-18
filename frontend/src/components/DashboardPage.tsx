@@ -73,6 +73,17 @@ type StartOption = '1m' | '3m' | '6m' | '1y' | '3y' | '5y' | 'max' | 'custom'
 type PriceDisplayMode = 'normalized' | 'actual'
 type EvalStatus = 'loading' | 'ready' | 'degraded' | 'error' | 'refreshing'
 
+const reasonLabelMap: Record<string, string> = {
+  PRICE_HISTORY_EMPTY: '価格履歴を取得できていません',
+  PRICE_HISTORY_SHORT: '過去データが不足しています',
+  PRICE_HISTORY_UNAVAILABLE: '価格履歴取得が一時的に不安定です',
+  TECHNICAL_FALLBACK_ZERO: 'テクニカル指標を再計算中です',
+  TECHNICAL_CALC_ERROR: 'テクニカル計算に失敗しました',
+  TECHNICAL_UNAVAILABLE: 'テクニカル指標が取得できません',
+  MACRO_UNAVAILABLE: 'マクロ指標の取得に失敗しました',
+  EVENTS_UNAVAILABLE: 'イベント情報の取得に失敗しました',
+}
+
 const motionVariants = {
   initial: { opacity: 0, y: -10 },
   animate: { opacity: 1, y: 0 },
@@ -460,43 +471,6 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
   }
   const viewLabel = viewLabelMap[scoreMaDays]
   const viewTooltip = viewTooltipMap[scoreMaDays]
-
-  const reasonLabelMap: Record<string, string> = {
-    PRICE_HISTORY_EMPTY: '価格履歴を取得できていません',
-    PRICE_HISTORY_SHORT: '過去データが不足しています',
-    PRICE_HISTORY_UNAVAILABLE: '価格履歴取得が一時的に不安定です',
-    TECHNICAL_FALLBACK_ZERO: 'テクニカル指標を再計算中です',
-    TECHNICAL_CALC_ERROR: 'テクニカル計算に失敗しました',
-    TECHNICAL_UNAVAILABLE: 'テクニカル指標が取得できません',
-    MACRO_UNAVAILABLE: 'マクロ指標の取得に失敗しました',
-    EVENTS_UNAVAILABLE: 'イベント情報の取得に失敗しました',
-  }
-
-  const reasonMessages = evalReasons
-    .map((reason) => reasonLabelMap[reason] ?? reason)
-    .filter((reason, index, array) => array.indexOf(reason) === index)
-    .slice(0, 2)
-
-  const degradedMessage =
-    reasonMessages.length > 0
-      ? `ℹ 状態：${reasonMessages.join(' / ')}`
-      : 'ℹ 状態：データが未確定のためスコアを確定できません'
-
-  const statusMessage =
-    evalStatus === 'error'
-      ? error ?? '評価データの取得に失敗しました。'
-      : evalStatusMessage || degradedMessage
-
-  const reasonLabelMap: Record<string, string> = {
-    PRICE_HISTORY_EMPTY: '価格履歴を取得できていません',
-    PRICE_HISTORY_SHORT: '過去データが不足しています',
-    PRICE_HISTORY_UNAVAILABLE: '価格履歴取得が一時的に不安定です',
-    TECHNICAL_FALLBACK_ZERO: 'テクニカル指標を再計算中です',
-    TECHNICAL_CALC_ERROR: 'テクニカル計算に失敗しました',
-    TECHNICAL_UNAVAILABLE: 'テクニカル指標が取得できません',
-    MACRO_UNAVAILABLE: 'マクロ指標の取得に失敗しました',
-    EVENTS_UNAVAILABLE: 'イベント情報の取得に失敗しました',
-  }
 
   const reasonMessages = evalReasons
     .map((reason) => reasonLabelMap[reason] ?? reason)
