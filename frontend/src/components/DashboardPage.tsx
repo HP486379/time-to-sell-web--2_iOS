@@ -517,48 +517,33 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
             value={scoreMaDays}
             onChange={(_, value) => handleScoreMaChange(Number(value))}
             variant="fullWidth"
+            indicatorColor="primary"
+            textColor="primary"
             TabIndicatorProps={{ sx: { height: 3 } }}
-            sx={{ borderBottom: (theme) => `1px solid ${theme.palette.divider}` }}
+            sx={{
+              borderBottom: (theme) => `1px solid ${theme.palette.divider}`,
+              '& .MuiTab-root': {
+                color: 'text.secondary',
+                '&:hover': { color: 'text.primary' },
+              },
+              '& .MuiTab-root.Mui-selected': { color: 'primary.main' },
+            }}
           >
-            <Tooltip title={timeAxisNote} arrow>
-              <Box component="span" sx={{ flex: 1 }}>
-                <Tab
-                  label="短期目線"
-                  value={20}
-                  sx={{
-                    color: 'text.secondary',
-                    '&:hover': { color: 'text.primary' },
-                    '&.Mui-selected': { color: 'primary.main' },
-                  }}
-                />
-              </Box>
-            </Tooltip>
-            <Tooltip title={timeAxisNote} arrow>
-              <Box component="span" sx={{ flex: 1 }}>
-                <Tab
-                  label="中期目線"
-                  value={60}
-                  sx={{
-                    color: 'text.secondary',
-                    '&:hover': { color: 'text.primary' },
-                    '&.Mui-selected': { color: 'primary.main' },
-                  }}
-                />
-              </Box>
-            </Tooltip>
-            <Tooltip title={timeAxisNote} arrow>
-              <Box component="span" sx={{ flex: 1 }}>
-                <Tab
-                  label="長期目線"
-                  value={200}
-                  sx={{
-                    color: 'text.secondary',
-                    '&:hover': { color: 'text.primary' },
-                    '&.Mui-selected': { color: 'primary.main' },
-                  }}
-                />
-              </Box>
-            </Tooltip>
+            <Tab
+              label="短期目線"
+              value={20}
+              title={timeAxisNote}
+            />
+            <Tab
+              label="中期目線"
+              value={60}
+              title={timeAxisNote}
+            />
+            <Tab
+              label="長期目線"
+              value={200}
+              title={timeAxisNote}
+            />
           </Tabs>
         </Box>
         <Stack spacing={1} mt={2}>
