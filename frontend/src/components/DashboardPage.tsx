@@ -16,11 +16,12 @@ import {
   DialogContent,
   DialogActions,
   Button,
+  Tabs,
+  Tab,
   FormControl,
   InputLabel,
   Select,
   MenuItem,
-  FormHelperText,
   TextField,
   Skeleton,
 } from '@mui/material'
@@ -450,19 +451,37 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
     run()
   }, [indexType, priceSeries])
 
-  const scoreMaLabel = '総合スコアの時間的な見え方'
-  const scoreMaTooltip =
-    '総合スコアは「今どうすべきか」の結論です。\nここでは、その判断の背景を時間軸ごとに見ることができます。'
-  const scoreMaOptions = [
-    { value: 20, labelSimple: '短期目線', labelPro: '短期目線' },
-    { value: 60, labelSimple: '中期目線', labelPro: '中期目線' },
-    { value: 200, labelSimple: '長期目線', labelPro: '長期目線' },
-  ]
   const scoreMaDays = lastRequest.score_ma as ScoreMaDays
   const viewLabelMap: Record<ScoreMaDays, string> = {
     20: '短期目線',
     60: '中期目線',
     200: '長期目線',
+  }
+  const viewDescriptionMap: Record<ScoreMaDays, { title: string; lines: string[] }> = {
+    20: {
+      title: '短期目線（2〜6週間）',
+      lines: [
+        '短期目線では、直近の値動きや過熱感、イベントの影響を重視します。',
+        '「今すぐ動くべきか」「一時的な調整が入りそうか」といった直近のリスクを確認する視点です。',
+        '短期的なノイズも多いため、ここでの判断はタイミング調整の意味合いが強くなります。',
+      ],
+    },
+    60: {
+      title: '中期目線（1〜3か月）',
+      lines: [
+        '中期目線では、トレンドの持続性や環境の変化を重視します。',
+        '短期のブレをならしながら、「流れとしてどうか？」を判断する視点です。',
+        'この視点は、売り・保有・様子見の判断の中心になります。',
+      ],
+    },
+    200: {
+      title: '長期目線（3か月〜1年）',
+      lines: [
+        '長期目線では、過去の平均水準や構造的な割高・割安感を重視します。',
+        '「今は歴史的に見てどの位置か？」という俯瞰の視点です。',
+        'ここでの判断は、天井圏か、まだ余地があるかを確認する意味合いになります。',
+      ],
+    },
   }
   const viewTooltipMap: Record<ScoreMaDays, string> = {
     20: 'MA20・短期乖離・勢い（今すぐ過熱してる？）',
@@ -471,6 +490,7 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
   }
   const viewLabel = viewLabelMap[scoreMaDays]
   const viewTooltip = viewTooltipMap[scoreMaDays]
+  const viewDescription = viewDescriptionMap[scoreMaDays]
 
   const reasonMessages = evalReasons
     .map((reason) => reasonLabelMap[reason] ?? reason)
@@ -533,29 +553,6 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
           </Select>
         </FormControl>
 
-        <FormControl size="small" sx={{ minWidth: 220 }}>
-          <InputLabel id="score-ma-select-label">{scoreMaLabel}</InputLabel>
-          <Tooltip title={scoreMaTooltip} arrow>
-            <Select
-              labelId="score-ma-select-label"
-              value={lastRequest.score_ma}
-              label={scoreMaLabel}
-              onChange={(e) => handleScoreMaChange(Number(e.target.value))}
-            >
-              {scoreMaOptions.map(({ value, labelSimple, labelPro }) => (
-                <MenuItem key={value} value={value}>
-                  {displayMode === 'simple' ? labelSimple : labelPro}
-                </MenuItem>
-              ))}
-            </Select>
-          </Tooltip>
-          <FormHelperText sx={{ whiteSpace: 'normal', lineHeight: 1.4 }}>
-            総合スコアは「今どうすべきか」の結論です。
-            <br />
-            ここでは、その判断の背景を時間軸ごとに見ることができます。
-          </FormHelperText>
-        </FormControl>
-
         <Box display="flex" alignItems="center" gap={1}>
           <Chip label={`最終更新: ${lastUpdatedLabel}`} size="small" />
           {evalStatus === 'refreshing' && (
@@ -599,7 +596,49 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
                 </Grid>
 
                 <Grid item xs={12} md={5} sx={{ height: '100%' }}>
-                  <SellTimingAvatarCard decision={avatarDecision} scoreMaDays={scoreMaDays} />
+                  <Stack spacing={2}>
+                    <SellTimingAvatarCard decision={avatarDecision} scoreMaDays={scoreMaDays} />
+                    <Card>
+                      <CardContent>
+                        <Typography variant="subtitle1" fontWeight={700} gutterBottom>
+                          総合スコアの時間的な見え方
+                        </Typography>
+                        <Typography variant="body2" color="text.secondary">
+                          総合スコアは「今どうすべきか」の結論です。
+                          <br />
+                          ここでは、その判断の背景を時間軸ごとに見ることができます。
+                        </Typography>
+                        <Box mt={2}>
+                          <Tabs
+                            value={scoreMaDays}
+                            onChange={(_, value) => handleScoreMaChange(Number(value))}
+                            variant="fullWidth"
+                          >
+                            <Tab label="短期目線" value={20} />
+                            <Tab label="中期目線" value={60} />
+                            <Tab label="長期目線" value={200} />
+                          </Tabs>
+                        </Box>
+                        <Typography variant="caption" color="text.secondary" display="block" mt={1.5}>
+                          ※ どの目線を選んでも、総合スコア自体は変わりません。
+                          <br />
+                          ここでは「なぜその判断になっているのか」を視点ごとに説明しています。
+                        </Typography>
+                        <Box mt={2}>
+                          <Typography variant="subtitle2" fontWeight={700} gutterBottom>
+                            {viewDescription.title}
+                          </Typography>
+                          <Stack spacing={1}>
+                            {viewDescription.lines.map((line, index) => (
+                              <Typography key={`${viewDescription.title}-${index}`} variant="body2" color="text.secondary">
+                                {line}
+                              </Typography>
+                            ))}
+                          </Stack>
+                        </Box>
+                      </CardContent>
+                    </Card>
+                  </Stack>
                 </Grid>
 
                 <Grid item xs={12}>
@@ -638,7 +677,49 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
                 />
                 </Grid>
                 <Grid item xs={12} md={5} sx={{ height: '100%' }}>
-                  <SellTimingAvatarCard decision={avatarDecision} scoreMaDays={scoreMaDays} />
+                  <Stack spacing={2}>
+                    <SellTimingAvatarCard decision={avatarDecision} scoreMaDays={scoreMaDays} />
+                    <Card>
+                      <CardContent>
+                        <Typography variant="subtitle1" fontWeight={700} gutterBottom>
+                          総合スコアの時間的な見え方
+                        </Typography>
+                        <Typography variant="body2" color="text.secondary">
+                          総合スコアは「今どうすべきか」の結論です。
+                          <br />
+                          ここでは、その判断の背景を時間軸ごとに見ることができます。
+                        </Typography>
+                        <Box mt={2}>
+                          <Tabs
+                            value={scoreMaDays}
+                            onChange={(_, value) => handleScoreMaChange(Number(value))}
+                            variant="fullWidth"
+                          >
+                            <Tab label="短期目線" value={20} />
+                            <Tab label="中期目線" value={60} />
+                            <Tab label="長期目線" value={200} />
+                          </Tabs>
+                        </Box>
+                        <Typography variant="caption" color="text.secondary" display="block" mt={1.5}>
+                          ※ どの目線を選んでも、総合スコア自体は変わりません。
+                          <br />
+                          ここでは「なぜその判断になっているのか」を視点ごとに説明しています。
+                        </Typography>
+                        <Box mt={2}>
+                          <Typography variant="subtitle2" fontWeight={700} gutterBottom>
+                            {viewDescription.title}
+                          </Typography>
+                          <Stack spacing={1}>
+                            {viewDescription.lines.map((line, index) => (
+                              <Typography key={`${viewDescription.title}-${index}`} variant="body2" color="text.secondary">
+                                {line}
+                              </Typography>
+                            ))}
+                          </Stack>
+                        </Box>
+                      </CardContent>
+                    </Card>
+                  </Stack>
                 </Grid>
               </>
             )}
