@@ -22,6 +22,7 @@ import { AnimatedSignalLight } from './AnimatedSignalLight'
 interface Props {
   scores?: {
     total: number
+    exit_total?: number
   }
   highlights?: { icon: string; text: string }[]
   zoneText?: string
