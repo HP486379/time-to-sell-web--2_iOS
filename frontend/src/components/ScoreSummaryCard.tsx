@@ -27,7 +27,6 @@ interface ScoreSummaryCardProps {
     total: number
     label: string
     period_total?: number
-    exit_total?: number
   }
   technical?: {
     d: number
@@ -79,7 +78,7 @@ function ScoreSummaryCard({
   const gradientStart = isDark ? '#101726' : alpha(theme.palette.primary.light, 0.2)
   const gradientEnd = isDark ? '#0c1b34' : alpha(theme.palette.secondary.light, 0.16)
   const showConfirmed = status === 'ready' || status === 'refreshing'
-  const exitScore = scores?.exit_total ?? scores?.total
+  const exitScore = scores?.total
   const zoneTextValue = zoneText ?? getScoreZoneText(showConfirmed ? exitScore : undefined)
   const showHighlights = highlights.length > 0
   const showDetailsToggle = Boolean(onShowDetails) && expanded !== undefined

@@ -525,32 +525,7 @@ def _evaluate(position: PositionRequest):
         else "long"
     )
     period_total = period_scores[selected_key]
-    base_score = (
-        0.2 * period_scores["short"]
-        + 0.3 * period_scores["mid"]
-        + 0.5 * period_scores["long"]
-    )
-    if (
-        period_scores["short"] >= 80
-        and period_scores["mid"] >= 80
-        and period_scores["long"] >= 80
-    ):
-        bonus = 10
-    elif (
-        period_scores["short"] >= 70
-        and period_scores["mid"] >= 70
-        and period_scores["long"] >= 70
-    ):
-        bonus = 6
-    elif period_scores["mid"] >= 70 and period_scores["long"] >= 70:
-        bonus = 3
-    elif period_scores["short"] >= 70 and period_scores["mid"] >= 70:
-        bonus = 2
-    else:
-        bonus = 0
-
-    exit_total = max(0.0, min(base_score + bonus, 100.0))
-    label = get_label(exit_total)
+    label = get_label(period_total)
     logger.info(
         "[evaluate] price history ready request_id=%s index=%s points=%d",
         request_id,
@@ -612,7 +587,6 @@ def _evaluate(position: PositionRequest):
                 "total": period_total,
                 "label": label,
                 "period_total": period_total,
-                "exit_total": exit_total,
             },
             "technical_details": technical_details,
             "macro_details": snapshot.get("macro_details", {}),
