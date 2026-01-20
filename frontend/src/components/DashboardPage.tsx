@@ -138,7 +138,7 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
   const evalStatusMessage = evalStatusMessageMap[indexType]
   const showScores = evalStatus === 'ready' || evalStatus === 'refreshing'
   const displayResponse = showScores ? response : null
-  const totalScore = displayResponse?.scores?.total
+  const totalScore = displayResponse?.scores?.exit_total ?? displayResponse?.scores?.total
   const priceSeries = priceSeriesMap[indexType] ?? []
 
   const handleRetry = () => {
