@@ -27,7 +27,6 @@ interface ScoreSummaryCardProps {
     total: number
     label: string
     period_total?: number
-    exit_total?: number
   }
   technical?: {
     d: number
@@ -79,8 +78,8 @@ function ScoreSummaryCard({
   const gradientStart = isDark ? '#101726' : alpha(theme.palette.primary.light, 0.2)
   const gradientEnd = isDark ? '#0c1b34' : alpha(theme.palette.secondary.light, 0.16)
   const showConfirmed = status === 'ready' || status === 'refreshing'
-  const exitScore = scores?.exit_total ?? scores?.total
-  const zoneTextValue = zoneText ?? getScoreZoneText(showConfirmed ? exitScore : undefined)
+  const totalScore = scores?.total
+  const zoneTextValue = zoneText ?? getScoreZoneText(showConfirmed ? totalScore : undefined)
   const showHighlights = highlights.length > 0
   const showDetailsToggle = Boolean(onShowDetails) && expanded !== undefined
   const periodScore = scores?.period_total ?? scores?.total
@@ -163,7 +162,7 @@ function ScoreSummaryCard({
               <Skeleton variant="text" width={120} height={44} />
             ) : (
               <Typography variant="h3" color="primary.main" fontWeight={700}>
-                {showConfirmed && exitScore !== undefined ? exitScore.toFixed(1) : '--'}
+                {showConfirmed && totalScore !== undefined ? totalScore.toFixed(1) : '--'}
               </Typography>
             )}
             {showMultiMaBadge && (
