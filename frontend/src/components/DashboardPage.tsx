@@ -105,6 +105,7 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
   const [syntheticNav, setSyntheticNav] = useState<SyntheticNavResponse | null>(null)
   const [fundNav, setFundNav] = useState<FundNavResponse | null>(null)
   const [lastRequest, setLastRequest] = useState<EvaluateRequest>(defaultRequest)
+  const [viewMaDays, setViewMaDays] = useState<ScoreMaDays>(defaultRequest.score_ma as ScoreMaDays)
   const [indexType, setIndexType] = useState<IndexType>('SP500')
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
   const [showDetails, setShowDetails] = useState(false)
@@ -138,7 +139,7 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
   const evalStatusMessage = evalStatusMessageMap[indexType]
   const showScores = evalStatus === 'ready' || evalStatus === 'refreshing'
   const displayResponse = showScores ? response : null
-  const totalScore = displayResponse?.scores?.exit_total ?? displayResponse?.scores?.total
+  const totalScore = displayResponse?.scores?.total
   const priceSeries = priceSeriesMap[indexType] ?? []
 
   const handleRetry = () => {
@@ -343,10 +344,6 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
     }
   }
 
-  const handleScoreMaChange = (value: number) => {
-    fetchEvaluation(indexType, { score_ma: value }, true)
-  }
-
   const fetchAll = async () => {
     const targets: IndexType[] = (() => {
       if (indexType === 'ORUKAN' || indexType === 'orukan_jpy') return ['ORUKAN', 'orukan_jpy']
@@ -416,6 +413,10 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
     }
   }, [startOption, customStart, priceSeries])
 
+  useEffect(() => {
+    setViewMaDays(lastRequest.score_ma as ScoreMaDays)
+  }, [lastRequest.score_ma])
+
   // ★ 追加：MA変更に合わせてチャート開始時点も追従（20→1m, 60→3m, 200→1y）
   useEffect(() => {
     const next = scoreMaToStartOption(lastRequest.score_ma)
@@ -453,7 +454,7 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
     run()
   }, [indexType, priceSeries])
 
-  const scoreMaDays = lastRequest.score_ma as ScoreMaDays
+  const scoreMaDays = viewMaDays
   const viewLabelMap: Record<ScoreMaDays, string> = {
     20: '短期目線',
     60: '中期目線',
@@ -516,7 +517,7 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
         <Box mt={2}>
           <Tabs
             value={scoreMaDays}
-            onChange={(_, value) => handleScoreMaChange(Number(value))}
+            onChange={(_, value) => setViewMaDays(Number(value) as ScoreMaDays)}
             variant="fullWidth"
             indicatorColor="primary"
             textColor="primary"
