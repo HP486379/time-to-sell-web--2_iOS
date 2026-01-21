@@ -612,6 +612,7 @@ def _evaluate(position: PositionRequest):
                 "total": period_total,
                 "label": label,
                 "period_total": period_total,
+                "exit_total": exit_total,
             },
             "technical_details": technical_details,
             "macro_details": snapshot.get("macro_details", {}),
