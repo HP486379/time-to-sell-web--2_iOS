@@ -28,12 +28,7 @@ interface ScoreSummaryCardProps {
     label: string
     period_total?: number
   }
-  periodScores?: {
-    short: number
-    mid: number
-    long: number
-  }
-  viewKey?: 'short' | 'mid' | 'long'
+  periodTotal?: number
   technical?: {
     d: number
     T_base: number
@@ -78,8 +73,7 @@ function ScoreSummaryCard({
   statusMessage,
   onRetry,
   isRetrying = false,
-  periodScores,
-  viewKey = 'short',
+  periodTotal,
 }: ScoreSummaryCardProps) {
   const theme = useTheme()
   const isDark = theme.palette.mode === 'dark'
@@ -90,7 +84,7 @@ function ScoreSummaryCard({
   const zoneTextValue = zoneText ?? getScoreZoneText(showConfirmed ? totalScore : undefined)
   const showHighlights = highlights.length > 0
   const showDetailsToggle = Boolean(onShowDetails) && expanded !== undefined
-  const periodScore = periodScores?.[viewKey]
+  const periodScore = periodTotal
   const convergenceSide = technical?.convergence?.side
   const convergenceAdj = technical?.T_conv_adj ?? 0
   const showConvergenceBadge =

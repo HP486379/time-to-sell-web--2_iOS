@@ -490,6 +490,7 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
     200: 'long',
   }
   const viewKey = viewKeyMap[viewDays]
+  const periodTotal = displayResponse?.period_scores?.[viewKey] ?? displayResponse?.scores?.period_total
 
   const reasonMessages = evalReasons
     .map((reason) => reasonLabelMap[reason] ?? reason)
@@ -670,8 +671,7 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
                   <Collapse in={showDetails}>
                     <ScoreSummaryCard
                       scores={displayResponse?.scores}
-                      periodScores={displayResponse?.period_scores}
-                      viewKey={viewKey}
+                      periodTotal={periodTotal}
                       highlights={highlights}
                       zoneText={zoneText}
                       onShowDetails={() => setShowDetails((prev) => !prev)}
@@ -693,8 +693,7 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
                   <Stack spacing={2} sx={{ height: '100%' }}>
                     <ScoreSummaryCard
                       scores={displayResponse?.scores}
-                      periodScores={displayResponse?.period_scores}
-                      viewKey={viewKey}
+                      periodTotal={periodTotal}
                       technical={displayResponse?.technical_details}
                       macro={displayResponse?.macro_details}
                       viewLabel={viewLabel}
