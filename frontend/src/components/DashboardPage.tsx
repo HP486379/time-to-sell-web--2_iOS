@@ -105,6 +105,7 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
   const [syntheticNav, setSyntheticNav] = useState<SyntheticNavResponse | null>(null)
   const [fundNav, setFundNav] = useState<FundNavResponse | null>(null)
   const [lastRequest, setLastRequest] = useState<EvaluateRequest>(defaultRequest)
+  const [viewDays, setViewDays] = useState<ScoreMaDays>(defaultRequest.score_ma as ScoreMaDays)
   const [indexType, setIndexType] = useState<IndexType>('SP500')
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
   const [showDetails, setShowDetails] = useState(false)
@@ -138,7 +139,7 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
   const evalStatusMessage = evalStatusMessageMap[indexType]
   const showScores = evalStatus === 'ready' || evalStatus === 'refreshing'
   const displayResponse = showScores ? response : null
-  const totalScore = displayResponse?.scores?.exit_total ?? displayResponse?.scores?.total
+  const totalScore = displayResponse?.scores?.total
   const priceSeries = priceSeriesMap[indexType] ?? []
 
   const handleRetry = () => {
@@ -344,7 +345,7 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
   }
 
   const handleScoreMaChange = (value: number) => {
-    fetchEvaluation(indexType, { score_ma: value }, true)
+    setViewDays(value as ScoreMaDays)
   }
 
   const fetchAll = async () => {
@@ -453,7 +454,6 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
     run()
   }, [indexType, priceSeries])
 
-  const scoreMaDays = lastRequest.score_ma as ScoreMaDays
   const viewLabelMap: Record<ScoreMaDays, string> = {
     20: '短期目線',
     60: '中期目線',
@@ -481,9 +481,15 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
     60: 'MA60・波の天井感（数ヶ月スパンで見てどう？）',
     200: 'MA200・大局（長期保有者にとって危険？）',
   }
-  const viewLabel = viewLabelMap[scoreMaDays]
-  const viewTooltip = viewTooltipMap[scoreMaDays]
-  const viewDescriptionLines = viewDescriptionMap[scoreMaDays]
+  const viewLabel = viewLabelMap[viewDays]
+  const viewTooltip = viewTooltipMap[viewDays]
+  const viewDescriptionLines = viewDescriptionMap[viewDays]
+  const viewKeyMap: Record<ScoreMaDays, 'short' | 'mid' | 'long'> = {
+    20: 'short',
+    60: 'mid',
+    200: 'long',
+  }
+  const viewKey = viewKeyMap[viewDays]
 
   const reasonMessages = evalReasons
     .map((reason) => reasonLabelMap[reason] ?? reason)
@@ -515,7 +521,7 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
         </Typography>
         <Box mt={2}>
           <Tabs
-            value={scoreMaDays}
+            value={viewDays}
             onChange={(_, value) => handleScoreMaChange(Number(value))}
             variant="fullWidth"
             indicatorColor="primary"
@@ -664,6 +670,8 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
                   <Collapse in={showDetails}>
                     <ScoreSummaryCard
                       scores={displayResponse?.scores}
+                      periodScores={displayResponse?.period_scores}
+                      viewKey={viewKey}
                       highlights={highlights}
                       zoneText={zoneText}
                       onShowDetails={() => setShowDetails((prev) => !prev)}
@@ -685,6 +693,8 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
                   <Stack spacing={2} sx={{ height: '100%' }}>
                     <ScoreSummaryCard
                       scores={displayResponse?.scores}
+                      periodScores={displayResponse?.period_scores}
+                      viewKey={viewKey}
                       technical={displayResponse?.technical_details}
                       macro={displayResponse?.macro_details}
                       viewLabel={viewLabel}
