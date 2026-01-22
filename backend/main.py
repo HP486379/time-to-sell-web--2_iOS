@@ -550,7 +550,7 @@ def _evaluate(position: PositionRequest):
         bonus = 0
 
     exit_total = max(0.0, min(base_score + bonus, 100.0))
-    label = get_label(exit_total)
+    label = get_label(base_score)
     logger.info(
         "[evaluate] price history ready request_id=%s index=%s points=%d",
         request_id,
@@ -609,10 +609,9 @@ def _evaluate(position: PositionRequest):
                 "technical": technical_score,
                 "macro": macro_score,
                 "event_adjustment": event_adjustment,
-                "total": period_total,
+                "total": base_score,
                 "label": label,
                 "period_total": period_total,
-                "exit_total": exit_total,
             },
             "technical_details": technical_details,
             "macro_details": snapshot.get("macro_details", {}),

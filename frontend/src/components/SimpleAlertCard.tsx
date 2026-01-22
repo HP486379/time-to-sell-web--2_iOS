@@ -22,7 +22,6 @@ import { AnimatedSignalLight } from './AnimatedSignalLight'
 interface Props {
   scores?: {
     total: number
-    exit_total?: number
   }
   highlights?: { icon: string; text: string }[]
   zoneText?: string
@@ -50,8 +49,8 @@ function SimpleAlertCard({
   const theme = useTheme()
   const isDark = theme.palette.mode === 'dark'
   const showConfirmed = status === 'ready' || status === 'refreshing'
-  const exitScore = scores?.exit_total ?? scores?.total
-  const alert = getAlertState(showConfirmed ? exitScore : undefined)
+  const totalScore = scores?.total
+  const alert = getAlertState(showConfirmed ? totalScore : undefined)
   const cardBackground = isDark ? '#2b2f38' : darken(alert.color, 0.04)
   const borderColor = isDark ? 'rgba(255,255,255,0.08)' : alpha(theme.palette.text.primary, 0.1)
   const textPrimary = isDark ? '#ffffff' : 'rgba(0, 0, 0, 0.85)'
@@ -148,7 +147,7 @@ function SimpleAlertCard({
           <Typography variant="body2" color={textSecondary}>
             {status === 'loading'
               ? '計算完了までしばらくお待ちください。'
-              : zoneText ?? getScoreZoneText(exitScore)}
+              : zoneText ?? getScoreZoneText(showConfirmed ? totalScore : undefined)}
           </Typography>
           {highlights.length > 0 && (
             <Box

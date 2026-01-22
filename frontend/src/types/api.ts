@@ -44,7 +44,6 @@ export interface EvaluateResponse {
     total: number
     label: string
     period_total?: number
-    exit_total?: number
   }
   period_scores?: {
     short: number
