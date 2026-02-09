@@ -99,6 +99,132 @@ const chartMotion = {
   exit: { opacity: 0.6 },
 }
 
+type ViewKey = 'short' | 'mid' | 'long'
+
+type BreakdownSlice = {
+  scores?: Partial<EvaluateResponse['scores']>
+  technical_details?: Partial<EvaluateResponse['technical_details']>
+  macro_details?: Partial<EvaluateResponse['macro_details']>
+}
+
+type ActiveBreakdown = {
+  scores: EvaluateResponse['scores']
+  technical: EvaluateResponse['technical_details'] | undefined
+  macro: EvaluateResponse['macro_details'] | undefined
+  isFallback: boolean
+}
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null
+
+const parseBreakdownSlice = (value: unknown): BreakdownSlice | null => {
+  if (!isRecord(value)) return null
+
+  const scoresSource = isRecord(value.scores) ? value.scores : value
+  const technicalSource = isRecord(value.technical_details)
+    ? value.technical_details
+    : isRecord(value.technical) && typeof value.technical.d === 'number'
+      ? value.technical
+      : null
+  const macroSource = isRecord(value.macro_details)
+    ? value.macro_details
+    : isRecord(value.macro) && typeof value.macro.M === 'number'
+      ? value.macro
+      : null
+
+  const scoreSlice: BreakdownSlice['scores'] = {
+    technical: typeof scoresSource.technical === 'number' ? scoresSource.technical : undefined,
+    macro: typeof scoresSource.macro === 'number' ? scoresSource.macro : undefined,
+    event_adjustment:
+      typeof scoresSource.event_adjustment === 'number' ? scoresSource.event_adjustment : undefined,
+  }
+
+  const technicalSlice = technicalSource
+    ? {
+        d: typeof technicalSource.d === 'number' ? technicalSource.d : undefined,
+        T_base: typeof technicalSource.T_base === 'number' ? technicalSource.T_base : undefined,
+        T_trend: typeof technicalSource.T_trend === 'number' ? technicalSource.T_trend : undefined,
+        T_conv_adj: typeof technicalSource.T_conv_adj === 'number' ? technicalSource.T_conv_adj : undefined,
+        convergence: isRecord(technicalSource.convergence)
+          ? (technicalSource.convergence as EvaluateResponse['technical_details']['convergence'])
+          : undefined,
+        multi_ma: isRecord(technicalSource.multi_ma)
+          ? (technicalSource.multi_ma as EvaluateResponse['technical_details']['multi_ma'])
+          : undefined,
+      }
+    : undefined
+
+  const macroSlice = macroSource
+    ? {
+        p_r: typeof macroSource.p_r === 'number' ? macroSource.p_r : undefined,
+        p_cpi: typeof macroSource.p_cpi === 'number' ? macroSource.p_cpi : undefined,
+        p_vix: typeof macroSource.p_vix === 'number' ? macroSource.p_vix : undefined,
+        M: typeof macroSource.M === 'number' ? macroSource.M : undefined,
+      }
+    : undefined
+
+  const hasAnyScore = Object.values(scoreSlice).some((v) => typeof v === 'number')
+  const hasAnyTechnical = technicalSlice && Object.values(technicalSlice).some((v) => v !== undefined)
+  const hasAnyMacro = macroSlice && Object.values(macroSlice).some((v) => v !== undefined)
+
+  if (!hasAnyScore && !hasAnyTechnical && !hasAnyMacro) return null
+  return { scores: scoreSlice, technical_details: technicalSlice, macro_details: macroSlice }
+}
+
+const getActiveBreakdown = (
+  viewKey: ViewKey,
+  response: EvaluateResponse | null,
+): ActiveBreakdown | null => {
+  if (!response) return null
+
+  const fallback: ActiveBreakdown = {
+    scores: response.scores,
+    technical: response.technical_details,
+    macro: response.macro_details,
+    isFallback: true,
+  }
+
+  const containerKeys = [
+    'period_breakdowns',
+    'period_details',
+    'period_components',
+    'period_scores_detail',
+  ] as const
+
+  const sourceRecord = response as unknown as Record<string, unknown>
+  let slice: BreakdownSlice | null = null
+
+  for (const key of containerKeys) {
+    const container = sourceRecord[key]
+    if (!isRecord(container)) continue
+    slice = parseBreakdownSlice(container[viewKey])
+    if (slice) break
+  }
+
+  if (!slice) return fallback
+
+  return {
+    scores: {
+      ...response.scores,
+      technical: slice.scores?.technical ?? response.scores.technical,
+      macro: slice.scores?.macro ?? response.scores.macro,
+      event_adjustment: slice.scores?.event_adjustment ?? response.scores.event_adjustment,
+      total: response.scores.total,
+      label: response.scores.label,
+      period_total: response.scores.period_total,
+    },
+    technical: {
+      ...response.technical_details,
+      ...(slice.technical_details ?? {}),
+    },
+    macro: {
+      ...response.macro_details,
+      ...(slice.macro_details ?? {}),
+    },
+    isFallback: false,
+  }
+}
+
 function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
   const [responses, setResponses] = useState<Partial<Record<IndexType, EvaluateResponse>>>({})
   const [error, setError] = useState<string | null>(null)
@@ -484,6 +610,15 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
     200: 'long',
   }
   const viewKey = viewKeyMap[viewDays]
+  const activeBreakdown = useMemo(() => getActiveBreakdown(viewKey, displayResponse), [viewKey, displayResponse])
+  const breakdownTitleMap: Record<ViewKey, string> = {
+    short: '短期目線の内訳',
+    mid: '中期目線の内訳',
+    long: '長期目線の内訳',
+  }
+  const breakdownFallbackNote = activeBreakdown?.isFallback
+    ? '※内訳の時間軸別データが未提供のため、内訳は統合（総合）ベースで表示しています。'
+    : undefined
 
   const reasonMessages = evalReasons
     .map((reason) => reasonLabelMap[reason] ?? reason)
@@ -676,6 +811,11 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
                   <Collapse in={showDetails}>
                     <ScoreSummaryCard
                       scores={displayResponse?.scores}
+                      breakdownTitle={breakdownTitleMap[viewKey]}
+                      breakdownFallbackNote={breakdownFallbackNote}
+                      breakdownScores={activeBreakdown?.scores}
+                      breakdownTechnical={activeBreakdown?.technical}
+                      breakdownMacro={activeBreakdown?.macro}
                       highlights={highlights}
                       zoneText={zoneText}
                       onShowDetails={() => setShowDetails((prev) => !prev)}
@@ -697,6 +837,11 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
                       scores={displayResponse?.scores}
                       technical={displayResponse?.technical_details}
                       macro={displayResponse?.macro_details}
+                      breakdownTitle={breakdownTitleMap[viewKey]}
+                      breakdownFallbackNote={breakdownFallbackNote}
+                      breakdownScores={activeBreakdown?.scores}
+                      breakdownTechnical={activeBreakdown?.technical}
+                      breakdownMacro={activeBreakdown?.macro}
                       tooltips={tooltipTexts}
                       status={evalStatus}
                       statusMessage={statusMessage}

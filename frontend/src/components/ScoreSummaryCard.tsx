@@ -55,6 +55,25 @@ interface ScoreSummaryCardProps {
   isRetrying?: boolean
   overallScoreNoteTitle?: string
   overallScoreNoteLines?: string[]
+  breakdownTitle?: string
+  breakdownFallbackNote?: string
+  breakdownScores?: { technical?: number; macro?: number; event_adjustment?: number }
+  breakdownTechnical?: {
+    d: number
+    T_base: number
+    T_trend: number
+    T_conv_adj?: number
+    convergence?: { side?: 'down_convergence' | 'up_convergence' | 'neutral' }
+    multi_ma?: {
+      dev10?: number | null
+      dev50?: number | null
+      dev200?: number | null
+      level?: number
+      label?: string
+      text?: string
+    }
+  }
+  breakdownMacro?: { p_r: number; p_cpi: number; p_vix: number; M: number }
 }
 
 function ScoreSummaryCard({
@@ -75,6 +94,11 @@ function ScoreSummaryCard({
     'テクニカル・マクロ・イベント要因を統合した「今どうすべきか」の結論です。',
     '時間軸別の評価（短期/中期/長期）とは別指標のため、一致しない場合があります。',
   ],
+  breakdownTitle = '内訳',
+  breakdownFallbackNote,
+  breakdownScores,
+  breakdownTechnical,
+  breakdownMacro,
 }: ScoreSummaryCardProps) {
   const theme = useTheme()
   const isDark = theme.palette.mode === 'dark'
@@ -85,8 +109,11 @@ function ScoreSummaryCard({
   const zoneTextValue = zoneText ?? getScoreZoneText(showConfirmed ? totalScore : undefined)
   const showHighlights = highlights.length > 0
   const showDetailsToggle = Boolean(onShowDetails) && expanded !== undefined
-  const convergenceSide = technical?.convergence?.side
-  const convergenceAdj = technical?.T_conv_adj ?? 0
+  const activeScores = breakdownScores ?? scores
+  const activeTechnical = breakdownTechnical ?? technical
+  const activeMacro = breakdownMacro ?? macro
+  const convergenceSide = activeTechnical?.convergence?.side
+  const convergenceAdj = activeTechnical?.T_conv_adj ?? 0
   const showConvergenceBadge =
     convergenceSide !== undefined &&
     convergenceSide !== 'neutral' &&
@@ -97,7 +124,7 @@ function ScoreSummaryCard({
     convergenceSide === 'down_convergence'
       ? '上昇の勢いが弱まり、価格が長期平均（200日線）に近づく動きが出始めています。\n※この兆しはスコアに反映されています。'
       : '下落の勢いが弱まり、価格が長期平均（200日線）に近づく動きが出始めています。\n※この兆しはスコアに反映されています。'
-  const multiMa = technical?.multi_ma
+  const multiMa = activeTechnical?.multi_ma
   const multiMaLevel = multiMa?.level ?? 0
   const showMultiMaBadge = showConfirmed && multiMaLevel >= 1
 
@@ -237,23 +264,31 @@ function ScoreSummaryCard({
           <Typography variant="body2" color="text.secondary">
             {status === 'loading' ? '⏳ 計算中…' : zoneTextValue}
           </Typography>
+          <Typography variant="subtitle2" color="text.primary" fontWeight={700}>
+            {breakdownTitle}
+          </Typography>
+          {breakdownFallbackNote && (
+            <Typography variant="caption" color="text.secondary">
+              {breakdownFallbackNote}
+            </Typography>
+          )}
           <Stack spacing={1}>
             <LabelBar
               label="テクニカル"
               tooltip={tooltips.score.technical}
-              value={showConfirmed ? scores?.technical : undefined}
+              value={showConfirmed ? activeScores?.technical : undefined}
               color="primary"
             />
             <LabelBar
               label="マクロ"
               tooltip={tooltips.score.macro}
-              value={showConfirmed ? scores?.macro : undefined}
+              value={showConfirmed ? activeScores?.macro : undefined}
               color="secondary"
             />
             <LabelBar
               label="イベント補正"
               tooltip={tooltips.score.event}
-              value={showConfirmed ? scores?.event_adjustment : undefined}
+              value={showConfirmed ? activeScores?.event_adjustment : undefined}
               color="error"
             />
           </Stack>
@@ -287,12 +322,12 @@ function ScoreSummaryCard({
             </Box>
           )}
 
-          {technical && macro && (
+          {activeTechnical && activeMacro && (
             <Box display="grid" gridTemplateColumns="repeat(2, 1fr)" gap={1}>
-              <DetailItem label="乖離率 d" tooltip={tooltips.score.d} value={`${technical.d}%`} />
-              <DetailItem label="T_base" tooltip={tooltips.score.T_base} value={technical.T_base} />
-              <DetailItem label="T_trend" tooltip={tooltips.score.T_trend} value={technical.T_trend} />
-              <DetailItem label="マクロ M" tooltip={tooltips.score.macroM} value={macro.M} />
+              <DetailItem label="乖離率 d" tooltip={tooltips.score.d} value={`${activeTechnical.d}%`} />
+              <DetailItem label="T_base" tooltip={tooltips.score.T_base} value={activeTechnical.T_base} />
+              <DetailItem label="T_trend" tooltip={tooltips.score.T_trend} value={activeTechnical.T_trend} />
+              <DetailItem label="マクロ M" tooltip={tooltips.score.macroM} value={activeMacro.M} />
             </Box>
           )}
           {showDetailsToggle && (
