@@ -277,13 +277,6 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
     void fetchAll()
   }
 
-  // ★ MA(20/60/200) → チャート開始時点(1m/3m/1y)へのマッピング
-  const scoreMaToStartOption = (scoreMa: number): StartOption => {
-    if (scoreMa === 20) return '1m'
-    if (scoreMa === 60) return '3m'
-    return '1y'
-  }
-
   const EVAL_RETRY_DELAYS_MS = [1500, 3000, 6000]
 
   const genRequestId = () => {
@@ -543,15 +536,17 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
     }
   }, [startOption, customStart, priceSeries])
 
-  // ★ 追加：MA変更に合わせてチャート開始時点も追従（20→1m, 60→3m, 200→1y）
+  // ★ 時間軸タブに合わせてチャート開始時点を同期（短期→1か月、中期→6か月、長期→1年）
   useEffect(() => {
-    const next = scoreMaToStartOption(lastRequest.score_ma)
-    setStartOption((prev) => {
-      if (prev === next) return prev
-      setCustomStart('')
-      return next
-    })
-  }, [lastRequest.score_ma])
+    const rangeByViewDays: Record<ScoreMaDays, StartOption> = {
+      20: '1m',
+      60: '6m',
+      200: '1y',
+    }
+    const next = rangeByViewDays[viewDays]
+    setStartOption(next)
+    setCustomStart('')
+  }, [viewDays])
 
   // ★ 追加：価格データの「最新日付」を基準にイベントを取得
   useEffect(() => {
@@ -900,10 +895,10 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
                   onChange={(e) => setStartOption(e.target.value as StartOption)}
                 >
                   <MenuItem value="max">全期間</MenuItem>
-                  <MenuItem value="1m">1ヶ月前</MenuItem>
+                  <MenuItem value="1m">1か月</MenuItem>
                   <MenuItem value="3m">3ヶ月前</MenuItem>
-                  <MenuItem value="6m">6ヶ月前</MenuItem>
-                  <MenuItem value="1y">1年前</MenuItem>
+                  <MenuItem value="6m">6か月</MenuItem>
+                  <MenuItem value="1y">1年</MenuItem>
                   <MenuItem value="3y">3年前</MenuItem>
                   <MenuItem value="5y">5年前</MenuItem>
                   <MenuItem value="custom">日付を指定</MenuItem>
