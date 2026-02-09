@@ -476,13 +476,7 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
       'ここでの判断は、天井圏か、まだ余地があるかを確認する意味合いになります。',
     ],
   }
-  const viewTooltipMap: Record<ScoreMaDays, string> = {
-    20: 'MA20・短期乖離・勢い（今すぐ過熱してる？）',
-    60: 'MA60・波の天井感（数ヶ月スパンで見てどう？）',
-    200: 'MA200・大局（長期保有者にとって危険？）',
-  }
   const viewLabel = viewLabelMap[viewDays]
-  const viewTooltip = viewTooltipMap[viewDays]
   const viewDescriptionLines = viewDescriptionMap[viewDays]
   const viewKeyMap: Record<ScoreMaDays, 'short' | 'mid' | 'long'> = {
     20: 'short',
@@ -490,7 +484,6 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
     200: 'long',
   }
   const viewKey = viewKeyMap[viewDays]
-  const periodTotal = displayResponse?.period_scores?.[viewKey] ?? displayResponse?.scores?.period_total
 
   const reasonMessages = evalReasons
     .map((reason) => reasonLabelMap[reason] ?? reason)
@@ -508,17 +501,17 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
       : evalStatusMessage || degradedMessage
 
   const timeAxisNote =
-    '※ どの目線を選んでも、総合スコア自体は変わりません。ここでは「なぜその判断になっているのか」を視点ごとに説明しています。'
+    '※ 総合スコア（統合判断）とは別指標です。ここでは、時間軸ごとの評価を参考値として確認できます。'
   const timeAxisCard = (
     <Card>
       <CardContent>
         <Typography variant="subtitle1" fontWeight={700} gutterBottom>
-          総合スコアの時間的な見え方
+          時間軸別の評価（参考）
         </Typography>
         <Typography variant="body2" color="text.secondary">
           総合スコアは「今どうすべきか」の結論です。
           <br />
-          ここでは、その判断の背景を時間軸ごとに見ることができます。
+          ここでは、その判断の背景を時間軸ごとの評価として確認できます。
         </Typography>
         <Box mt={2}>
           <Tabs
@@ -563,7 +556,19 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
             />
           </Tabs>
         </Box>
-        <Stack spacing={1} mt={2}>
+        <Stack direction="row" alignItems="baseline" spacing={1} mt={2}>
+          <Typography variant="subtitle2" fontWeight={700}>
+            {`${viewLabel}スコア:`}
+          </Typography>
+          <Typography variant="h6" color="primary.main" fontWeight={700}>
+            {displayResponse?.period_scores?.[viewKey] !== undefined
+              ? displayResponse.period_scores[viewKey].toFixed(1)
+              : displayResponse?.scores?.period_total !== undefined
+                ? displayResponse.scores.period_total.toFixed(1)
+                : '--'}
+          </Typography>
+        </Stack>
+        <Stack spacing={1}>
           {viewDescriptionLines.map((line, index) => (
             <Typography key={`view-description-${index}`} variant="body2" color="text.secondary">
               {line}
@@ -671,13 +676,10 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
                   <Collapse in={showDetails}>
                     <ScoreSummaryCard
                       scores={displayResponse?.scores}
-                      periodTotal={periodTotal}
                       highlights={highlights}
                       zoneText={zoneText}
                       onShowDetails={() => setShowDetails((prev) => !prev)}
                       expanded={showDetails}
-                      viewLabel={viewLabel}
-                      viewTooltip={viewTooltip}
                       tooltips={tooltipTexts}
                       status={evalStatus}
                       statusMessage={statusMessage}
@@ -693,11 +695,8 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
                   <Stack spacing={2} sx={{ height: '100%' }}>
                     <ScoreSummaryCard
                       scores={displayResponse?.scores}
-                      periodTotal={periodTotal}
                       technical={displayResponse?.technical_details}
                       macro={displayResponse?.macro_details}
-                      viewLabel={viewLabel}
-                      viewTooltip={viewTooltip}
                       tooltips={tooltipTexts}
                       status={evalStatus}
                       statusMessage={statusMessage}
