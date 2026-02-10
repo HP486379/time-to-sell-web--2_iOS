@@ -2,7 +2,6 @@ import {
   Card,
   CardContent,
   Typography,
-  LinearProgress,
   Stack,
   Box,
   alpha,
@@ -21,30 +20,9 @@ type EvalStatus = 'loading' | 'ready' | 'degraded' | 'error' | 'refreshing'
 
 interface ScoreSummaryCardProps {
   scores?: {
-    technical: number
-    macro: number
-    event_adjustment: number
     total: number
     label: string
-    period_total?: number
   }
-  technical?: {
-    d: number
-    T_base: number
-    T_trend: number
-    T_conv_adj?: number
-    convergence?: { side?: 'down_convergence' | 'up_convergence' | 'neutral' }
-    multi_ma?: {
-      dev10?: number | null
-      dev50?: number | null
-      dev200?: number | null
-      level?: number
-      label?: string
-      text?: string
-    }
-  }
-  macro?: { p_r: number; p_cpi: number; p_vix: number; M: number }
-  highlights?: { icon: string; text: string }[]
   zoneText?: string
   expanded?: boolean
   onShowDetails?: () => void
@@ -55,32 +33,10 @@ interface ScoreSummaryCardProps {
   isRetrying?: boolean
   overallScoreNoteTitle?: string
   overallScoreNoteLines?: string[]
-  breakdownTitle?: string
-  breakdownFallbackNote?: string
-  breakdownScores?: { technical?: number; macro?: number; event_adjustment?: number }
-  breakdownTechnical?: {
-    d: number
-    T_base: number
-    T_trend: number
-    T_conv_adj?: number
-    convergence?: { side?: 'down_convergence' | 'up_convergence' | 'neutral' }
-    multi_ma?: {
-      dev10?: number | null
-      dev50?: number | null
-      dev200?: number | null
-      level?: number
-      label?: string
-      text?: string
-    }
-  }
-  breakdownMacro?: { p_r: number; p_cpi: number; p_vix: number; M: number }
 }
 
 function ScoreSummaryCard({
   scores,
-  technical,
-  macro,
-  highlights = [],
   zoneText,
   expanded,
   onShowDetails,
@@ -94,11 +50,6 @@ function ScoreSummaryCard({
     'テクニカル・マクロ・イベント要因を統合した「今どうすべきか」の結論です。',
     '時間軸別の評価（短期/中期/長期）とは別指標のため、一致しない場合があります。',
   ],
-  breakdownTitle = '内訳',
-  breakdownFallbackNote,
-  breakdownScores,
-  breakdownTechnical,
-  breakdownMacro,
 }: ScoreSummaryCardProps) {
   const theme = useTheme()
   const isDark = theme.palette.mode === 'dark'
@@ -107,26 +58,7 @@ function ScoreSummaryCard({
   const showConfirmed = status === 'ready' || status === 'refreshing'
   const totalScore = scores?.total
   const zoneTextValue = zoneText ?? getScoreZoneText(showConfirmed ? totalScore : undefined)
-  const showHighlights = highlights.length > 0
   const showDetailsToggle = Boolean(onShowDetails) && expanded !== undefined
-  const activeScores = breakdownScores ?? scores
-  const activeTechnical = breakdownTechnical ?? technical
-  const activeMacro = breakdownMacro ?? macro
-  const convergenceSide = activeTechnical?.convergence?.side
-  const convergenceAdj = activeTechnical?.T_conv_adj ?? 0
-  const showConvergenceBadge =
-    convergenceSide !== undefined &&
-    convergenceSide !== 'neutral' &&
-    Math.abs(convergenceAdj) >= 0.5
-  const convergenceLabel =
-    convergenceSide === 'down_convergence' ? '🔸 天井圏・調整兆し' : '🔹 底打ち・反発兆し'
-  const convergenceTooltip =
-    convergenceSide === 'down_convergence'
-      ? '上昇の勢いが弱まり、価格が長期平均（200日線）に近づく動きが出始めています。\n※この兆しはスコアに反映されています。'
-      : '下落の勢いが弱まり、価格が長期平均（200日線）に近づく動きが出始めています。\n※この兆しはスコアに反映されています。'
-  const multiMa = activeTechnical?.multi_ma
-  const multiMaLevel = multiMa?.level ?? 0
-  const showMultiMaBadge = showConfirmed && multiMaLevel >= 1
 
   return (
     <Card
@@ -181,6 +113,7 @@ function ScoreSummaryCard({
               </Typography>
             </Alert>
           )}
+
           <Box
             display="grid"
             gridTemplateColumns={{ xs: '1fr', md: 'minmax(0, 1fr) minmax(260px, 0.9fr)' }}
@@ -200,33 +133,6 @@ function ScoreSummaryCard({
                   <Typography variant="h3" color="primary.main" fontWeight={700}>
                     {showConfirmed && totalScore !== undefined ? totalScore.toFixed(1) : '--'}
                   </Typography>
-                )}
-                {showMultiMaBadge && (
-                  <Tooltip title={multiMa?.text ?? ''} arrow>
-                    <Chip
-                      size="small"
-                      variant="outlined"
-                      label={multiMa?.label ?? ''}
-                      sx={{ fontSize: '0.7rem' }}
-                    />
-                  </Tooltip>
-                )}
-                {showConvergenceBadge && (
-                  <Box
-                    title={convergenceTooltip}
-                    sx={(theme) => ({
-                      px: 1,
-                      py: 0.25,
-                      borderRadius: 999,
-                      fontSize: '0.7rem',
-                      lineHeight: 1.2,
-                      border: `1px solid ${alpha(theme.palette.text.primary, 0.2)}`,
-                      bgcolor: alpha(theme.palette.text.primary, theme.palette.mode === 'dark' ? 0.08 : 0.04),
-                      color: theme.palette.text.secondary,
-                    })}
-                  >
-                    {convergenceLabel}
-                  </Box>
                 )}
                 {status === 'refreshing' && <Chip size="small" color="info" label="更新中…" />}
               </Stack>
@@ -253,6 +159,7 @@ function ScoreSummaryCard({
               </Stack>
             </Box>
           </Box>
+
           <Typography variant="overline" color="text.secondary" component="div">
             出口接近度
           </Typography>
@@ -264,72 +171,7 @@ function ScoreSummaryCard({
           <Typography variant="body2" color="text.secondary">
             {status === 'loading' ? '⏳ 計算中…' : zoneTextValue}
           </Typography>
-          <Typography variant="subtitle2" color="text.primary" fontWeight={700}>
-            {breakdownTitle}
-          </Typography>
-          {breakdownFallbackNote && (
-            <Typography variant="caption" color="text.secondary">
-              {breakdownFallbackNote}
-            </Typography>
-          )}
-          <Stack spacing={1}>
-            <LabelBar
-              label="テクニカル"
-              tooltip={tooltips.score.technical}
-              value={showConfirmed ? activeScores?.technical : undefined}
-              color="primary"
-            />
-            <LabelBar
-              label="マクロ"
-              tooltip={tooltips.score.macro}
-              value={showConfirmed ? activeScores?.macro : undefined}
-              color="secondary"
-            />
-            <LabelBar
-              label="イベント補正"
-              tooltip={tooltips.score.event}
-              value={showConfirmed ? activeScores?.event_adjustment : undefined}
-              color="error"
-            />
-          </Stack>
 
-          {showHighlights && (
-            <Box
-              sx={{
-                p: 1.5,
-                borderRadius: 2,
-                backgroundColor: alpha(theme.palette.background.default, 0.35),
-                border: `1px solid ${alpha(theme.palette.text.primary, 0.08)}`,
-              }}
-            >
-              <Tooltip title={tooltips.simple.points} arrow>
-                <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-                  今日のポイント
-                </Typography>
-              </Tooltip>
-              <Stack spacing={1}>
-                {highlights.map((highlight, idx) => (
-                  <Stack direction="row" spacing={1} alignItems="flex-start" key={`${highlight.icon}-${idx}`}>
-                    <Typography variant="body1" component="span" aria-hidden>
-                      {highlight.icon}
-                    </Typography>
-                    <Typography variant="body2" component="span" color="text.secondary">
-                      {highlight.text}
-                    </Typography>
-                  </Stack>
-                ))}
-              </Stack>
-            </Box>
-          )}
-
-          {activeTechnical && activeMacro && (
-            <Box display="grid" gridTemplateColumns="repeat(2, 1fr)" gap={1}>
-              <DetailItem label="乖離率 d" tooltip={tooltips.score.d} value={`${activeTechnical.d}%`} />
-              <DetailItem label="T_base" tooltip={tooltips.score.T_base} value={activeTechnical.T_base} />
-              <DetailItem label="T_trend" tooltip={tooltips.score.T_trend} value={activeTechnical.T_trend} />
-              <DetailItem label="マクロ M" tooltip={tooltips.score.macroM} value={activeMacro.M} />
-            </Box>
-          )}
           {showDetailsToggle && (
             <>
               <Divider />
@@ -341,57 +183,6 @@ function ScoreSummaryCard({
         </Stack>
       </CardContent>
     </Card>
-  )
-}
-
-function LabelBar({
-  label,
-  tooltip,
-  value,
-  color,
-}: {
-  label: string
-  tooltip: string
-  value?: number
-  color: 'primary' | 'secondary' | 'error'
-}) {
-  return (
-    <Box>
-      <Box display="flex" justifyContent="space-between" mb={0.5}>
-        <Tooltip title={tooltip} arrow>
-          <Typography variant="body2" color="text.secondary" component="div">
-            {label}
-          </Typography>
-        </Tooltip>
-        <Typography variant="body2" color={`${color}.light`}>
-          {value !== undefined ? value.toFixed(1) : '--'}
-        </Typography>
-      </Box>
-      <LinearProgress variant="determinate" value={value ? Math.min(Math.max(value, 0), 100) : 0} color={color} />
-    </Box>
-  )
-}
-
-function DetailItem({ label, tooltip, value }: { label: string; tooltip: string; value: number | string }) {
-  const theme = useTheme()
-  const isDark = theme.palette.mode === 'dark'
-  return (
-    <Box
-      bgcolor={
-        isDark
-          ? 'rgba(255,255,255,0.04)'
-          : alpha(theme.palette.text.primary, 0.04)
-      }
-      p={1}
-      borderRadius={1}
-    >
-      <Tooltip title={tooltip} arrow>
-        <Typography variant="caption" color="text.secondary" component="div">
-          {label}
-        </Typography>
-      </Tooltip>
-      <Typography variant="body1">{value}</Typography>
-    </Box>
   )
 }
 

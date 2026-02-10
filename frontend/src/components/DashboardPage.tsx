@@ -24,6 +24,7 @@ import {
   MenuItem,
   TextField,
   Skeleton,
+  LinearProgress,
 } from '@mui/material'
 import axios from 'axios'
 import dayjs from 'dayjs'
@@ -686,6 +687,15 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
             />
           </Tabs>
         </Box>
+        <TimeAxisBreakdownSection
+          title={breakdownTitleMap[viewKey]}
+          fallbackNote={breakdownFallbackNote}
+          scores={activeBreakdown?.scores}
+          technical={activeBreakdown?.technical}
+          macro={activeBreakdown?.macro}
+          status={evalStatus}
+          tooltips={tooltipTexts}
+        />
         <Stack direction="row" alignItems="baseline" spacing={1} mt={2}>
           <Typography variant="subtitle2" fontWeight={700}>
             {`${viewLabel}スコア:`}
@@ -784,7 +794,6 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
                   <Stack spacing={2} sx={{ height: '100%' }}>
                     <SimpleAlertCard
                       scores={displayResponse?.scores}
-                      highlights={highlights}
                       zoneText={zoneText}
                       onShowDetails={() => setShowDetails((prev) => !prev)}
                       expanded={showDetails}
@@ -806,12 +815,6 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
                   <Collapse in={showDetails}>
                     <ScoreSummaryCard
                       scores={displayResponse?.scores}
-                      breakdownTitle={breakdownTitleMap[viewKey]}
-                      breakdownFallbackNote={breakdownFallbackNote}
-                      breakdownScores={activeBreakdown?.scores}
-                      breakdownTechnical={activeBreakdown?.technical}
-                      breakdownMacro={activeBreakdown?.macro}
-                      highlights={highlights}
                       zoneText={zoneText}
                       onShowDetails={() => setShowDetails((prev) => !prev)}
                       expanded={showDetails}
@@ -830,13 +833,6 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
                   <Stack spacing={2} sx={{ height: '100%' }}>
                     <ScoreSummaryCard
                       scores={displayResponse?.scores}
-                      technical={displayResponse?.technical_details}
-                      macro={displayResponse?.macro_details}
-                      breakdownTitle={breakdownTitleMap[viewKey]}
-                      breakdownFallbackNote={breakdownFallbackNote}
-                      breakdownScores={activeBreakdown?.scores}
-                      breakdownTechnical={activeBreakdown?.technical}
-                      breakdownMacro={activeBreakdown?.macro}
                       tooltips={tooltipTexts}
                       status={evalStatus}
                       statusMessage={statusMessage}
@@ -1002,6 +998,123 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
         </>
       )}
     </Stack>
+  )
+}
+
+
+function TimeAxisBreakdownSection({
+  title,
+  fallbackNote,
+  scores,
+  technical,
+  macro,
+  status,
+  tooltips,
+}: {
+  title: string
+  fallbackNote?: string
+  scores?: { technical?: number; macro?: number; event_adjustment?: number }
+  technical?: { d?: number; T_base?: number; T_trend?: number }
+  macro?: { M?: number; macro_M?: number }
+  status: EvalStatus
+  tooltips: ReturnType<typeof buildTooltips>
+}) {
+  const showConfirmed = status === 'ready' || status === 'refreshing'
+
+  return (
+    <Box
+      sx={{
+        mt: 2,
+        p: 1.5,
+        borderRadius: 2,
+        border: (theme) => `1px solid ${theme.palette.divider}`,
+        bgcolor: (theme) => (theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.02)'),
+      }}
+    >
+      <Typography variant="subtitle2" fontWeight={700} gutterBottom>
+        {title}
+      </Typography>
+      {fallbackNote && (
+        <Typography variant="caption" color="text.secondary" display="block" mb={1}>
+          {fallbackNote}
+        </Typography>
+      )}
+
+      <Stack spacing={1}>
+        <BreakdownBar
+          label="テクニカル"
+          value={showConfirmed ? scores?.technical : undefined}
+          color="primary"
+          tooltip={tooltips.score.technical}
+        />
+        <BreakdownBar
+          label="マクロ"
+          value={showConfirmed ? scores?.macro : undefined}
+          color="secondary"
+          tooltip={tooltips.score.macro}
+        />
+        <BreakdownBar
+          label="イベント補正"
+          value={showConfirmed ? scores?.event_adjustment : undefined}
+          color="error"
+          tooltip={tooltips.score.event}
+        />
+      </Stack>
+
+      <Box display="grid" gridTemplateColumns="repeat(2, 1fr)" gap={1} mt={1.25}>
+        <MetricItem label="乖離率 d" tooltip={tooltips.score.d} value={showConfirmed ? `${technical?.d ?? '--'}%` : '--'} />
+        <MetricItem label="T_base" tooltip={tooltips.score.T_base} value={showConfirmed ? (technical?.T_base ?? '--') : '--'} />
+        <MetricItem label="T_trend" tooltip={tooltips.score.T_trend} value={showConfirmed ? (technical?.T_trend ?? '--') : '--'} />
+        <MetricItem label="マクロ M" tooltip={tooltips.score.macroM} value={showConfirmed ? (macro?.M ?? macro?.macro_M ?? '--') : '--'} />
+      </Box>
+    </Box>
+  )
+}
+
+function BreakdownBar({
+  label,
+  value,
+  color,
+  tooltip,
+}: {
+  label: string
+  value?: number
+  color: 'primary' | 'secondary' | 'error'
+  tooltip: string
+}) {
+  return (
+    <Box>
+      <Box display="flex" justifyContent="space-between" mb={0.5}>
+        <Tooltip title={tooltip} arrow>
+          <Typography variant="body2" color="text.secondary" component="div">
+            {label}
+          </Typography>
+        </Tooltip>
+        <Typography variant="body2" color={`${color}.light`}>
+          {value !== undefined ? value.toFixed(1) : '--'}
+        </Typography>
+      </Box>
+      <LinearProgress variant="determinate" value={value ? Math.min(Math.max(value, 0), 100) : 0} color={color} />
+    </Box>
+  )
+}
+
+function MetricItem({ label, tooltip, value }: { label: string; tooltip: string; value: string | number }) {
+  return (
+    <Box
+      sx={{
+        p: 1,
+        borderRadius: 1,
+        bgcolor: (theme) => (theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.03)'),
+      }}
+    >
+      <Tooltip title={tooltip} arrow>
+        <Typography variant="caption" color="text.secondary" component="div">
+          {label}
+        </Typography>
+      </Tooltip>
+      <Typography variant="body1">{value}</Typography>
+    </Box>
   )
 }
 
