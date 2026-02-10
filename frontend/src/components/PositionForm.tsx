@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Card, CardContent, TextField, Button, Stack, Typography, Box, Divider, Tooltip } from '@mui/material'
-import { EvaluateRequest, FundNavResponse, SyntheticNavResponse } from '../types/api'
+import type { EvaluateRequest } from '../../../shared/types/evaluate'
+import type { FundNavResponse, SyntheticNavResponse } from '../../../shared/types'
 import type { TooltipTexts } from '../tooltipTexts'
 
 interface Props {
