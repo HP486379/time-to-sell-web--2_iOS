@@ -55,6 +55,71 @@ export interface EvaluateResponse {
     mid_window: number
     long_window: number
   }
+  period_breakdowns?: {
+    short: {
+      scores: {
+        technical: number
+        macro: number
+        event_adjustment: number
+      }
+      technical_details: {
+        d: number
+        T_base: number
+        T_trend: number
+        T_conv_adj?: number
+        technical_score_raw?: number
+      }
+      macro_details: {
+        macro_M?: number
+        M?: number
+        p_r?: number
+        p_cpi?: number
+        p_vix?: number
+      }
+    }
+    mid: {
+      scores: {
+        technical: number
+        macro: number
+        event_adjustment: number
+      }
+      technical_details: {
+        d: number
+        T_base: number
+        T_trend: number
+        T_conv_adj?: number
+        technical_score_raw?: number
+      }
+      macro_details: {
+        macro_M?: number
+        M?: number
+        p_r?: number
+        p_cpi?: number
+        p_vix?: number
+      }
+    }
+    long: {
+      scores: {
+        technical: number
+        macro: number
+        event_adjustment: number
+      }
+      technical_details: {
+        d: number
+        T_base: number
+        T_trend: number
+        T_conv_adj?: number
+        technical_score_raw?: number
+      }
+      macro_details: {
+        macro_M?: number
+        M?: number
+        p_r?: number
+        p_cpi?: number
+        p_vix?: number
+      }
+    }
+  }
   technical_details: {
     d: number
     T_base: number
