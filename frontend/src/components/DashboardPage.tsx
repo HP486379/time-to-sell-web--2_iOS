@@ -24,6 +24,7 @@ import {
   MenuItem,
   TextField,
   Skeleton,
+  LinearProgress,
 } from '@mui/material'
 import axios from 'axios'
 import dayjs from 'dayjs'
@@ -99,6 +100,132 @@ const chartMotion = {
   exit: { opacity: 0.6 },
 }
 
+type ViewKey = 'short' | 'mid' | 'long'
+
+type BreakdownSlice = {
+  scores?: Partial<EvaluateResponse['scores']>
+  technical_details?: Partial<EvaluateResponse['technical_details']>
+  macro_details?: Partial<EvaluateResponse['macro_details']>
+}
+
+type ActiveBreakdown = {
+  scores: EvaluateResponse['scores']
+  technical: EvaluateResponse['technical_details'] | undefined
+  macro: EvaluateResponse['macro_details'] | undefined
+  isFallback: boolean
+}
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null
+
+const parseBreakdownSlice = (value: unknown): BreakdownSlice | null => {
+  if (!isRecord(value)) return null
+
+  const scoresSource = isRecord(value.scores) ? value.scores : value
+  const technicalSource = isRecord(value.technical_details)
+    ? value.technical_details
+    : isRecord(value.technical) && typeof value.technical.d === 'number'
+      ? value.technical
+      : null
+  const macroSource = isRecord(value.macro_details)
+    ? value.macro_details
+    : isRecord(value.macro) && typeof value.macro.M === 'number'
+      ? value.macro
+      : null
+
+  const scoreSlice: BreakdownSlice['scores'] = {
+    technical: typeof scoresSource.technical === 'number' ? scoresSource.technical : undefined,
+    macro: typeof scoresSource.macro === 'number' ? scoresSource.macro : undefined,
+    event_adjustment:
+      typeof scoresSource.event_adjustment === 'number' ? scoresSource.event_adjustment : undefined,
+  }
+
+  const technicalSlice = technicalSource
+    ? {
+        d: typeof technicalSource.d === 'number' ? technicalSource.d : undefined,
+        T_base: typeof technicalSource.T_base === 'number' ? technicalSource.T_base : undefined,
+        T_trend: typeof technicalSource.T_trend === 'number' ? technicalSource.T_trend : undefined,
+        T_conv_adj: typeof technicalSource.T_conv_adj === 'number' ? technicalSource.T_conv_adj : undefined,
+        convergence: isRecord(technicalSource.convergence)
+          ? (technicalSource.convergence as EvaluateResponse['technical_details']['convergence'])
+          : undefined,
+        multi_ma: isRecord(technicalSource.multi_ma)
+          ? (technicalSource.multi_ma as EvaluateResponse['technical_details']['multi_ma'])
+          : undefined,
+      }
+    : undefined
+
+  const macroSlice = macroSource
+    ? {
+        p_r: typeof macroSource.p_r === 'number' ? macroSource.p_r : undefined,
+        p_cpi: typeof macroSource.p_cpi === 'number' ? macroSource.p_cpi : undefined,
+        p_vix: typeof macroSource.p_vix === 'number' ? macroSource.p_vix : undefined,
+        M: typeof macroSource.M === 'number' ? macroSource.M : undefined,
+      }
+    : undefined
+
+  const hasAnyScore = Object.values(scoreSlice).some((v) => typeof v === 'number')
+  const hasAnyTechnical = technicalSlice && Object.values(technicalSlice).some((v) => v !== undefined)
+  const hasAnyMacro = macroSlice && Object.values(macroSlice).some((v) => v !== undefined)
+
+  if (!hasAnyScore && !hasAnyTechnical && !hasAnyMacro) return null
+  return { scores: scoreSlice, technical_details: technicalSlice, macro_details: macroSlice }
+}
+
+const getActiveBreakdown = (
+  viewKey: ViewKey,
+  response: EvaluateResponse | null,
+): ActiveBreakdown | null => {
+  if (!response) return null
+
+  const fallback: ActiveBreakdown = {
+    scores: response.scores,
+    technical: response.technical_details,
+    macro: response.macro_details,
+    isFallback: true,
+  }
+
+  const containerKeys = [
+    'period_breakdowns',
+    'period_details',
+    'period_components',
+    'period_scores_detail',
+  ] as const
+
+  const sourceRecord = response as unknown as Record<string, unknown>
+  let slice: BreakdownSlice | null = null
+
+  for (const key of containerKeys) {
+    const container = sourceRecord[key]
+    if (!isRecord(container)) continue
+    slice = parseBreakdownSlice(container[viewKey])
+    if (slice) break
+  }
+
+  if (!slice) return fallback
+
+  return {
+    scores: {
+      ...response.scores,
+      technical: slice.scores?.technical ?? response.scores.technical,
+      macro: slice.scores?.macro ?? response.scores.macro,
+      event_adjustment: slice.scores?.event_adjustment ?? response.scores.event_adjustment,
+      total: response.scores.total,
+      label: response.scores.label,
+      period_total: response.scores.period_total,
+    },
+    technical: {
+      ...response.technical_details,
+      ...(slice.technical_details ?? {}),
+    },
+    macro: {
+      ...response.macro_details,
+      ...(slice.macro_details ?? {}),
+    },
+    isFallback: false,
+  }
+}
+
 function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
   const [responses, setResponses] = useState<Partial<Record<IndexType, EvaluateResponse>>>({})
   const [error, setError] = useState<string | null>(null)
@@ -149,13 +276,6 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
     }))
     setIsEvalRetrying(false)
     void fetchAll()
-  }
-
-  // ★ MA(20/60/200) → チャート開始時点(1m/3m/1y)へのマッピング
-  const scoreMaToStartOption = (scoreMa: number): StartOption => {
-    if (scoreMa === 20) return '1m'
-    if (scoreMa === 60) return '3m'
-    return '1y'
   }
 
   const EVAL_RETRY_DELAYS_MS = [1500, 3000, 6000]
@@ -417,15 +537,17 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
     }
   }, [startOption, customStart, priceSeries])
 
-  // ★ 追加：MA変更に合わせてチャート開始時点も追従（20→1m, 60→3m, 200→1y）
+  // ★ 時間軸タブに合わせてチャート開始時点を同期（短期→1か月、中期→6か月、長期→1年）
   useEffect(() => {
-    const next = scoreMaToStartOption(lastRequest.score_ma)
-    setStartOption((prev) => {
-      if (prev === next) return prev
-      setCustomStart('')
-      return next
-    })
-  }, [lastRequest.score_ma])
+    const rangeByViewDays: Record<ScoreMaDays, StartOption> = {
+      20: '1m',
+      60: '6m',
+      200: '1y',
+    }
+    const next = rangeByViewDays[viewDays]
+    setStartOption(next)
+    setCustomStart('')
+  }, [viewDays])
 
   // ★ 追加：価格データの「最新日付」を基準にイベントを取得
   useEffect(() => {
@@ -476,13 +598,7 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
       'ここでの判断は、天井圏か、まだ余地があるかを確認する意味合いになります。',
     ],
   }
-  const viewTooltipMap: Record<ScoreMaDays, string> = {
-    20: 'MA20・短期乖離・勢い（今すぐ過熱してる？）',
-    60: 'MA60・波の天井感（数ヶ月スパンで見てどう？）',
-    200: 'MA200・大局（長期保有者にとって危険？）',
-  }
   const viewLabel = viewLabelMap[viewDays]
-  const viewTooltip = viewTooltipMap[viewDays]
   const viewDescriptionLines = viewDescriptionMap[viewDays]
   const viewKeyMap: Record<ScoreMaDays, 'short' | 'mid' | 'long'> = {
     20: 'short',
@@ -490,7 +606,15 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
     200: 'long',
   }
   const viewKey = viewKeyMap[viewDays]
-  const periodTotal = displayResponse?.period_scores?.[viewKey] ?? displayResponse?.scores?.period_total
+  const activeBreakdown = useMemo(() => getActiveBreakdown(viewKey, displayResponse), [viewKey, displayResponse])
+  const breakdownTitleMap: Record<ViewKey, string> = {
+    short: '短期目線の内訳',
+    mid: '中期目線の内訳',
+    long: '長期目線の内訳',
+  }
+  const breakdownFallbackNote = activeBreakdown?.isFallback
+    ? '※内訳の時間軸別データが未提供のため、内訳は統合（総合）ベースで表示しています。'
+    : undefined
 
   const reasonMessages = evalReasons
     .map((reason) => reasonLabelMap[reason] ?? reason)
@@ -508,17 +632,17 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
       : evalStatusMessage || degradedMessage
 
   const timeAxisNote =
-    '※ どの目線を選んでも、総合スコア自体は変わりません。ここでは「なぜその判断になっているのか」を視点ごとに説明しています。'
+    '※ 総合スコア（統合判断）とは別指標です。ここでは、時間軸ごとの評価を参考値として確認できます。'
   const timeAxisCard = (
     <Card>
       <CardContent>
         <Typography variant="subtitle1" fontWeight={700} gutterBottom>
-          総合スコアの時間的な見え方
+          時間軸別の評価（参考）
         </Typography>
         <Typography variant="body2" color="text.secondary">
           総合スコアは「今どうすべきか」の結論です。
           <br />
-          ここでは、その判断の背景を時間軸ごとに見ることができます。
+          ここでは、その判断の背景を時間軸ごとの評価として確認できます。
         </Typography>
         <Box mt={2}>
           <Tabs
@@ -563,7 +687,28 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
             />
           </Tabs>
         </Box>
-        <Stack spacing={1} mt={2}>
+        <TimeAxisBreakdownSection
+          title={breakdownTitleMap[viewKey]}
+          fallbackNote={breakdownFallbackNote}
+          scores={activeBreakdown?.scores}
+          technical={activeBreakdown?.technical}
+          macro={activeBreakdown?.macro}
+          status={evalStatus}
+          tooltips={tooltipTexts}
+        />
+        <Stack direction="row" alignItems="baseline" spacing={1} mt={2}>
+          <Typography variant="subtitle2" fontWeight={700}>
+            {`${viewLabel}スコア:`}
+          </Typography>
+          <Typography variant="h6" color="primary.main" fontWeight={700}>
+            {displayResponse?.period_scores?.[viewKey] !== undefined
+              ? displayResponse.period_scores[viewKey].toFixed(1)
+              : displayResponse?.scores?.period_total !== undefined
+                ? displayResponse.scores.period_total.toFixed(1)
+                : '--'}
+          </Typography>
+        </Stack>
+        <Stack spacing={1}>
           {viewDescriptionLines.map((line, index) => (
             <Typography key={`view-description-${index}`} variant="body2" color="text.secondary">
               {line}
@@ -649,7 +794,6 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
                   <Stack spacing={2} sx={{ height: '100%' }}>
                     <SimpleAlertCard
                       scores={displayResponse?.scores}
-                      highlights={highlights}
                       zoneText={zoneText}
                       onShowDetails={() => setShowDetails((prev) => !prev)}
                       expanded={showDetails}
@@ -671,13 +815,9 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
                   <Collapse in={showDetails}>
                     <ScoreSummaryCard
                       scores={displayResponse?.scores}
-                      periodTotal={periodTotal}
-                      highlights={highlights}
                       zoneText={zoneText}
                       onShowDetails={() => setShowDetails((prev) => !prev)}
                       expanded={showDetails}
-                      viewLabel={viewLabel}
-                      viewTooltip={viewTooltip}
                       tooltips={tooltipTexts}
                       status={evalStatus}
                       statusMessage={statusMessage}
@@ -693,11 +833,6 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
                   <Stack spacing={2} sx={{ height: '100%' }}>
                     <ScoreSummaryCard
                       scores={displayResponse?.scores}
-                      periodTotal={periodTotal}
-                      technical={displayResponse?.technical_details}
-                      macro={displayResponse?.macro_details}
-                      viewLabel={viewLabel}
-                      viewTooltip={viewTooltip}
                       tooltips={tooltipTexts}
                       status={evalStatus}
                       statusMessage={statusMessage}
@@ -756,10 +891,10 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
                   onChange={(e) => setStartOption(e.target.value as StartOption)}
                 >
                   <MenuItem value="max">全期間</MenuItem>
-                  <MenuItem value="1m">1ヶ月前</MenuItem>
+                  <MenuItem value="1m">1か月</MenuItem>
                   <MenuItem value="3m">3ヶ月前</MenuItem>
-                  <MenuItem value="6m">6ヶ月前</MenuItem>
-                  <MenuItem value="1y">1年前</MenuItem>
+                  <MenuItem value="6m">6か月</MenuItem>
+                  <MenuItem value="1y">1年</MenuItem>
                   <MenuItem value="3y">3年前</MenuItem>
                   <MenuItem value="5y">5年前</MenuItem>
                   <MenuItem value="custom">日付を指定</MenuItem>
@@ -863,6 +998,123 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
         </>
       )}
     </Stack>
+  )
+}
+
+
+function TimeAxisBreakdownSection({
+  title,
+  fallbackNote,
+  scores,
+  technical,
+  macro,
+  status,
+  tooltips,
+}: {
+  title: string
+  fallbackNote?: string
+  scores?: { technical?: number; macro?: number; event_adjustment?: number }
+  technical?: { d?: number; T_base?: number; T_trend?: number }
+  macro?: { M?: number; macro_M?: number }
+  status: EvalStatus
+  tooltips: ReturnType<typeof buildTooltips>
+}) {
+  const showConfirmed = status === 'ready' || status === 'refreshing'
+
+  return (
+    <Box
+      sx={{
+        mt: 2,
+        p: 1.5,
+        borderRadius: 2,
+        border: (theme) => `1px solid ${theme.palette.divider}`,
+        bgcolor: (theme) => (theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.02)'),
+      }}
+    >
+      <Typography variant="subtitle2" fontWeight={700} gutterBottom>
+        {title}
+      </Typography>
+      {fallbackNote && (
+        <Typography variant="caption" color="text.secondary" display="block" mb={1}>
+          {fallbackNote}
+        </Typography>
+      )}
+
+      <Stack spacing={1}>
+        <BreakdownBar
+          label="テクニカル"
+          value={showConfirmed ? scores?.technical : undefined}
+          color="primary"
+          tooltip={tooltips.score.technical}
+        />
+        <BreakdownBar
+          label="マクロ"
+          value={showConfirmed ? scores?.macro : undefined}
+          color="secondary"
+          tooltip={tooltips.score.macro}
+        />
+        <BreakdownBar
+          label="イベント補正"
+          value={showConfirmed ? scores?.event_adjustment : undefined}
+          color="error"
+          tooltip={tooltips.score.event}
+        />
+      </Stack>
+
+      <Box display="grid" gridTemplateColumns="repeat(2, 1fr)" gap={1} mt={1.25}>
+        <MetricItem label="乖離率 d" tooltip={tooltips.score.d} value={showConfirmed ? `${technical?.d ?? '--'}%` : '--'} />
+        <MetricItem label="T_base" tooltip={tooltips.score.T_base} value={showConfirmed ? (technical?.T_base ?? '--') : '--'} />
+        <MetricItem label="T_trend" tooltip={tooltips.score.T_trend} value={showConfirmed ? (technical?.T_trend ?? '--') : '--'} />
+        <MetricItem label="マクロ M" tooltip={tooltips.score.macroM} value={showConfirmed ? (macro?.M ?? macro?.macro_M ?? '--') : '--'} />
+      </Box>
+    </Box>
+  )
+}
+
+function BreakdownBar({
+  label,
+  value,
+  color,
+  tooltip,
+}: {
+  label: string
+  value?: number
+  color: 'primary' | 'secondary' | 'error'
+  tooltip: string
+}) {
+  return (
+    <Box>
+      <Box display="flex" justifyContent="space-between" mb={0.5}>
+        <Tooltip title={tooltip} arrow>
+          <Typography variant="body2" color="text.secondary" component="div">
+            {label}
+          </Typography>
+        </Tooltip>
+        <Typography variant="body2" color={`${color}.light`}>
+          {value !== undefined ? value.toFixed(1) : '--'}
+        </Typography>
+      </Box>
+      <LinearProgress variant="determinate" value={value ? Math.min(Math.max(value, 0), 100) : 0} color={color} />
+    </Box>
+  )
+}
+
+function MetricItem({ label, tooltip, value }: { label: string; tooltip: string; value: string | number }) {
+  return (
+    <Box
+      sx={{
+        p: 1,
+        borderRadius: 1,
+        bgcolor: (theme) => (theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.03)'),
+      }}
+    >
+      <Tooltip title={tooltip} arrow>
+        <Typography variant="caption" color="text.secondary" component="div">
+          {label}
+        </Typography>
+      </Tooltip>
+      <Typography variant="body1">{value}</Typography>
+    </Box>
   )
 }
 

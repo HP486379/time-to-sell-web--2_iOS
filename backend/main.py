@@ -103,6 +103,7 @@ class EvaluateResponse(BaseModel):
     symbol: str
     period_scores: dict
     period_meta: dict
+    period_breakdowns: dict
     scores: dict
     technical_details: dict
     macro_details: dict
@@ -481,11 +482,18 @@ def _evaluate(position: PositionRequest):
         "long_window": period_windows["long"],
     }
     technical_scores: dict[str, float] = {}
+    period_scores: dict[str, float] = {}
+    period_breakdowns: dict[str, dict] = {}
     technical_details = {}
     technical_ok = True
     technical_score = 0.0
 
+    macro_details_snapshot = snapshot.get("macro_details", {}) or {}
+    # NOTE: マクロ・イベントは現行ロジックでは期間非依存のため、period_breakdowns に同値を展開する
+    macro_M_value = float(macro_details_snapshot.get("M", macro_score) or 0.0)
+
     for key, window in period_windows.items():
+        details: dict = {}
         try:
             score, details = calculate_technical_score(price_history, base_window=window)
             technical_scores[key] = score
@@ -500,14 +508,14 @@ def _evaluate(position: PositionRequest):
                 window,
             )
             technical_scores[key] = 0.0
+            details = {}
             if window == position.score_ma:
                 technical_score = 0.0
                 technical_details = {}
             technical_ok = False
             reasons.extend(["TECHNICAL_CALC_ERROR", "TECHNICAL_UNAVAILABLE"])
 
-    period_scores = {
-        key: calculate_total_score(
+        period_total_score = calculate_total_score(
             technical_scores[key],
             macro_score,
             event_adjustment,
@@ -515,8 +523,29 @@ def _evaluate(position: PositionRequest):
             ma500=ma500,
             ma1000=ma1000,
         )
-        for key in period_windows
-    }
+        period_scores[key] = period_total_score
+
+        period_breakdowns[key] = {
+            "scores": {
+                "technical": float(technical_scores[key]),
+                "macro": float(macro_score),
+                "event_adjustment": float(event_adjustment),
+            },
+            "technical_details": {
+                "d": float(details.get("d", 0.0) or 0.0),
+                "T_base": float(details.get("T_base", 0.0) or 0.0),
+                "T_trend": float(details.get("T_trend", 0.0) or 0.0),
+                "T_conv_adj": float(details.get("T_conv_adj", 0.0) or 0.0),
+                "technical_score_raw": float(technical_scores[key]),
+            },
+            "macro_details": {
+                "macro_M": macro_M_value,
+                "M": macro_M_value,
+                "p_r": float(macro_details_snapshot.get("p_r", 0.0) or 0.0),
+                "p_cpi": float(macro_details_snapshot.get("p_cpi", 0.0) or 0.0),
+                "p_vix": float(macro_details_snapshot.get("p_vix", 0.0) or 0.0),
+            },
+        }
     selected_key = (
         "short"
         if position.score_ma == period_windows["short"]
@@ -605,6 +634,7 @@ def _evaluate(position: PositionRequest):
             "symbol": series_symbol,
             "period_scores": period_scores,
             "period_meta": period_meta,
+            "period_breakdowns": period_breakdowns,
             "scores": {
                 "technical": technical_score,
                 "macro": macro_score,
