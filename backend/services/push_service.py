@@ -16,7 +16,7 @@ class PushRegistration:
     expo_push_token: str
     index_type: str = "SP500"
     threshold: float = 80.0
-    paid: bool = True
+    paid: bool = False
     last_notified_on: Optional[str] = None
 
 
@@ -54,7 +54,7 @@ class PushService:
                         expo_push_token=token,
                         index_type=item.get("index_type", "SP500"),
                         threshold=float(item.get("threshold", 80.0)),
-                        paid=bool(item.get("paid", True)),
+                        paid=bool(item.get("paid", False)),
                         last_notified_on=item.get("last_notified_on"),
                     )
                 )
@@ -71,14 +71,20 @@ class PushService:
         expo_push_token: str,
         index_type: str = "SP500",
         threshold: float = 80.0,
-        paid: bool = True,
+        paid: bool = False,
     ) -> PushRegistration:
         rows = self._read()
-        matched = next((r for r in rows if r.install_id == install_id), None)
+        matched = next(
+            (r for r in rows if r.install_id == install_id and r.index_type == index_type),
+            None,
+        )
+
+        existing_indices = {r.index_type for r in rows if r.install_id == install_id}
+        if not paid and existing_indices and index_type not in existing_indices:
+            raise ValueError("upgrade_required")
 
         if matched:
             matched.expo_push_token = expo_push_token
-            matched.index_type = index_type
             matched.threshold = threshold
             matched.paid = paid
             reg = matched
@@ -96,7 +102,8 @@ class PushService:
         return reg
 
     def find_by_install_id(self, install_id: str) -> Optional[PushRegistration]:
-        return next((r for r in self._read() if r.install_id == install_id), None)
+        rows = [r for r in self._read() if r.install_id == install_id]
+        return rows[-1] if rows else None
 
     def list_paid(self) -> List[PushRegistration]:
         return [r for r in self._read() if r.paid]
@@ -107,7 +114,11 @@ class PushService:
     def mark_sent_today(self, reg: PushRegistration, today: date) -> None:
         rows = self._read()
         for row in rows:
-            if row.install_id == reg.install_id:
+            if (
+                row.install_id == reg.install_id
+                and row.index_type == reg.index_type
+                and row.threshold == reg.threshold
+            ):
                 row.last_notified_on = today.isoformat()
                 break
         self._write(rows)

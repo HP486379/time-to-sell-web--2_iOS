@@ -166,7 +166,7 @@ class PushRegisterRequest(BaseModel):
     expo_push_token: str
     index_type: IndexType = IndexType.SP500
     threshold: float = 80.0
-    paid: bool = True
+    paid: bool = False
 
 
 class PushRunResponse(BaseModel):
@@ -766,13 +766,19 @@ def get_events_api(date_str: str = Query(None)):
 @app.post("/api/push/register")
 @app.post("/push/register")
 def push_register(payload: PushRegisterRequest):
-    reg = push_service.register(
-        install_id=payload.install_id,
-        expo_push_token=payload.expo_push_token,
-        index_type=payload.index_type.value,
-        threshold=payload.threshold,
-        paid=payload.paid,
-    )
+    try:
+        reg = push_service.register(
+            install_id=payload.install_id,
+            expo_push_token=payload.expo_push_token,
+            index_type=payload.index_type.value,
+            threshold=payload.threshold,
+            paid=payload.paid,
+        )
+    except ValueError as exc:
+        if str(exc) == "upgrade_required":
+            raise HTTPException(status_code=403, detail="upgrade_required") from exc
+        raise
+
     return {"ok": True, "registration": reg.__dict__}
 
 
