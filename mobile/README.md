@@ -1,6 +1,6 @@
 # mobile (Expo TypeScript)
 
-iOS 向けに Web Dashboard と同等の「構造・挙動」を再現する MVP です。
+iOS 向けに Web Dashboard と同等の「構造・挙動」を再現しつつ、Push 通知MVP（トークン取得→register→test受信）を含む構成です。
 
 ## セットアップ
 
@@ -23,20 +23,49 @@ EXPO_PUBLIC_API_BASE_URL=https://time-to-sell-web-2.vercel.app
 EXPO_PUBLIC_API_BASE_URL=http://localhost:8000
 ```
 
-## 起動（iOS）
+## iOS 実機での Push 検証手順（development build 前提）
+
+> Push は Expo Go ではなく development build を推奨します。
+
+1. EAS 設定
 
 ```bash
 cd mobile
-npm run ios
+eas build:configure
 ```
 
-シミュレータなしで Metro のみ起動する場合:
+2. iOS development build
 
 ```bash
-npm run start
+eas build --profile development --platform ios
 ```
 
-## Web 同等 UI の確認手順
+3. 実機にインストールして起動
+   - 起動時に通知権限ダイアログを許可
+   - Metro/端末ログで以下を確認
+     - `[push] token 取得成功 ...`
+     - `[push] register 成功 install_id=...`
+
+4. backend 側で test 送信
+   - token 直指定（切り分け）
+
+```bash
+curl -X POST "$EXPO_PUBLIC_API_BASE_URL/api/push/test" \
+  -H "Content-Type: application/json" \
+  -d '{"expo_push_token":"ExponentPushToken[xxxx]"}'
+```
+
+   - install_id 指定（本命導線）
+
+```bash
+curl -X POST "$EXPO_PUBLIC_API_BASE_URL/api/push/test" \
+  -H "Content-Type: application/json" \
+  -d '{"install_id":"<install_id>"}'
+```
+
+5. 実機で通知受信を確認
+
+## Dashboard UI の確認手順
 
 1. Dashboard タブを開く
 2. 対象インデックスを選択して evaluate を取得
@@ -50,9 +79,3 @@ npm run start
    - short: 1ヶ月
    - mid: 6ヶ月
    - long: 1年
-
-## 実装メモ
-
-- Push 通知は本 PR の対象外
-- 型は `../shared/types.ts` を利用し、mobile 内の二重定義を避ける
-- API 呼び出しは `../shared/api.ts` の `evaluateIndex` を利用
