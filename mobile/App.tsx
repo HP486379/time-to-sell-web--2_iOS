@@ -6,6 +6,7 @@ import { Text, useColorScheme, View } from 'react-native'
 import * as Notifications from 'expo-notifications'
 
 import { DashboardScreen } from './src/screens/DashboardScreen'
+import { PushDebugScreen } from './src/screens/PushDebugScreen'
 import { getExpoPushToken } from './src/push/getExpoPushToken'
 import { registerPushToken } from './src/push/registerPush'
 
@@ -55,6 +56,7 @@ export default function App() {
         <Tab.Navigator>
           <Tab.Screen name="Dashboard" component={DashboardScreen} />
           <Tab.Screen name="Backtest" component={BacktestPlaceholder} />
+          <Tab.Screen name="Push Debug" component={PushDebugScreen} />
         </Tab.Navigator>
       </NavigationContainer>
     </SafeAreaProvider>

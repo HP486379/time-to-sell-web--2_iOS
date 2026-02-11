@@ -20,8 +20,10 @@ EXPO_PUBLIC_API_BASE_URL=https://time-to-sell-web-2.vercel.app
 ローカル backend に向ける場合の例:
 
 ```bash
-EXPO_PUBLIC_API_BASE_URL=http://localhost:8000
+EXPO_PUBLIC_API_BASE_URL=http://192.168.x.x:8000
 ```
+
+> iPhone 実機から backend へ送る場合、`localhost` は使えません。Windows/Mac の LAN IP を使ってください。
 
 ## iOS 実機での Push 検証手順（development build 前提）
 
@@ -42,26 +44,25 @@ eas build --profile development --platform ios
 
 3. 実機にインストールして起動
    - 起動時に通知権限ダイアログを許可
-   - Metro/端末ログで以下を確認
-     - `[push] token 取得成功 ...`
-     - `[push] register 成功 install_id=...`
+   - `Push Debug` タブを開く
+   - 自動取得または「Push Tokenを取得」ボタンで token を取得
+   - token は画面に表示され、「コピー」ボタンでクリップボードへ保存可能
+   - 権限拒否時は画面上に理由を表示
 
-4. backend 側で test 送信
-   - token 直指定（切り分け）
-
-```bash
-curl -X POST "$EXPO_PUBLIC_API_BASE_URL/api/push/test" \
-  -H "Content-Type: application/json" \
-  -d '{"expo_push_token":"ExponentPushToken[xxxx]"}'
-```
-
-   - install_id 指定（本命導線）
+4. backend 側で test 送信（最短導線）
+   - backend 起動
 
 ```bash
-curl -X POST "$EXPO_PUBLIC_API_BASE_URL/api/push/test" \
-  -H "Content-Type: application/json" \
-  -d '{"install_id":"<install_id>"}'
+cd backend
+uvicorn main:app --reload --port 8000
 ```
+
+   - Swagger: `http://localhost:8000/docs`
+   - `/api/push/test` を Try it out
+     - token 直指定（切り分け）
+       `{"expo_push_token":"ExponentPushToken[...]"}`
+     - install_id 指定（本命導線）
+       `{"install_id":"<install_id>"}`
 
 5. 実機で通知受信を確認
 
