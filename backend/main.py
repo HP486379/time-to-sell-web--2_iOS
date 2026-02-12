@@ -42,6 +42,11 @@ app.add_middleware(
 )
 
 
+@app.get("/health")
+def health():
+    return {"ok": True}
+
+
 # ======================
 # Models & Enums
 # ======================
@@ -219,7 +224,7 @@ MIN_PRICE_POINTS = 200
 # ======================
 
 @app.get("/api/health")
-def health():
+def api_health():
     return {"status": "ok"}
 
 
