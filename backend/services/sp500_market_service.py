@@ -5,29 +5,27 @@ from datetime import date, timedelta
 from typing import List, Optional, Tuple
 
 import requests
-import pandas as pd
-import yfinance as yf
 from dotenv import load_dotenv
+
+from services.market_data_provider import MarketDataProvider
+from services.providers.yahoo_provider import YahooProvider
 
 
 logger = logging.getLogger(__name__)
 
 
 class SP500MarketService:
-    """Service that fetches live pricing via yfinance with an optional synthetic fallback."""
+    """Service that fetches live pricing with an optional synthetic fallback."""
 
-    def __init__(self, symbol: Optional[str] = None):
+    def __init__(self, symbol: Optional[str] = None, provider: Optional[MarketDataProvider] = None):
         load_dotenv()
         self.symbol_map = {
             "SP500": symbol or os.getenv("SP500_SYMBOL", "^GSPC"),
             "TOPIX": os.getenv("TOPIX_SYMBOL", "1306.T"),
             "NIKKEI": os.getenv("NIKKEI_SYMBOL", "^N225"),
             "NIFTY50": os.getenv("NIFTY50_SYMBOL", "^NSEI"),
-            # オルカンは MSCI ACWI 連動 ETF（ACWI）をプロキシとして利用する
             "ORUKAN": os.getenv("ORUKAN_SYMBOL", "ACWI"),
-            # オルカン円建ては ACWI × USD/JPY を用いる
             "orukan_jpy": os.getenv("ORUKAN_JPY_SYMBOL", os.getenv("ORUKAN_SYMBOL", "ACWI")),
-            # S&P500 円建ては ^GSPC × USD/JPY を用いる
             "sp500_jpy": os.getenv("SP500_JPY_SYMBOL", os.getenv("SP500_SYMBOL", "^GSPC")),
         }
 
@@ -73,26 +71,22 @@ class SP500MarketService:
             "sp500_jpy": 4000.0,
         }
 
+        self.provider = provider or self._resolve_provider_from_env()
+
         logger.info(
-            "[MARKET CONFIG] symbols=%s fx_symbols=%s fallback=%s price_types=%s",
+            "[MARKET CONFIG] symbols=%s fx_symbols=%s fallback=%s price_types=%s provider=%s",
             self.symbol_map,
             self.fx_symbol_map,
             self.allow_synth_map,
             self.price_type_map,
+            self.provider.__class__.__name__,
         )
 
-    def _extract_close_series(self, hist: pd.DataFrame) -> pd.Series:
-        """Extract a 1-D close/adj close series from yfinance DataFrame."""
-
-        close = hist.get("Close")
-        if close is None:
-            close = hist.get("Adj Close")
-        if close is None:
-            raise ValueError("close column missing")
-        # yfinance may return a DataFrame when using MultiIndex columns; squeeze to Series
-        if isinstance(close, pd.DataFrame):
-            close = close.iloc[:, 0]
-        return close.dropna()
+    def _resolve_provider_from_env(self) -> MarketDataProvider:
+        provider_name = os.getenv("MARKET_DATA_PROVIDER", "yahoo").strip().lower()
+        if provider_name in {"yahoo", "yfinance", ""}:
+            return YahooProvider()
+        raise ValueError(f"Unsupported MARKET_DATA_PROVIDER: {provider_name}")
 
     def _flag(self, name: str, default: bool = False) -> bool:
         raw = os.getenv(name)
@@ -115,29 +109,20 @@ class SP500MarketService:
     def _resolve_price_type(self, index_type: str) -> Optional[str]:
         return self.price_type_map.get(index_type)
 
-    def _download_close_series(self, symbol: str, start: date, end: date) -> pd.Series:
-        hist = yf.download(symbol, start=start, end=end + timedelta(days=1), interval="1d")
-        hist = hist.dropna()
-        closes = self._extract_close_series(hist)
-        if closes.empty:
-            raise ValueError(f"empty history for {symbol}")
-        return closes
-
     def _fetch_index_history_jpy(self, start: date, end: date, index_type: str) -> List[Tuple[str, float]]:
         symbol = self._resolve_symbol(index_type)
         fx_symbol = self._resolve_fx_symbol(index_type)
         if not fx_symbol:
             raise ValueError("fx_symbol required for index_jpy")
 
-        idx_close = self._download_close_series(symbol, start, end).rename("close_usd")
-        fx_close = self._download_close_series(fx_symbol, start, end).rename("usdjpy")
+        idx_close = self.provider.get_history(symbol, start, end)
+        fx_close = self.provider.get_history(fx_symbol, start, end)
 
-        combined = pd.concat([idx_close, fx_close], axis=1, join="inner").dropna()
-        if combined.empty:
+        fx_map = {d: px for d, px in fx_close}
+        series = [(d, round(float(px) * float(fx_map[d]), 2)) for d, px in idx_close if d in fx_map]
+        if not series:
             raise ValueError("no overlapping dates for index and fx")
 
-        combined["close"] = combined["close_usd"] * combined["usdjpy"]
-        series = [(self._to_iso_date(idx), round(float(val), 2)) for idx, val in combined["close"].items()]
         logger.info(
             "Using yfinance history for %s (symbol=%s fx_symbol=%s price_type=%s points=%d)",
             index_type,
@@ -149,8 +134,6 @@ class SP500MarketService:
         return series
 
     def _fetch_nav_history(self, start: date, end: date, index_type: str) -> List[Tuple[str, float]]:
-        """Optional custom NAV API (if provided by env) returning date/close pairs."""
-
         nav_base = self._resolve_nav_base(index_type)
         if not nav_base:
             return []
@@ -190,13 +173,6 @@ class SP500MarketService:
         return []
 
     def _fallback_history(self, start: date, end: date, index_type: str) -> List[Tuple[str, float]]:
-        """決定的で過度に膨らまないシンセティック履歴を生成する。
-
-        * 年率のドリフトは指数ごとに設定（S&P500: 約7%、TOPIX: 約4%）
-        * 日次の揺らぎを小さめに入れて最大ドローダウンが0%にならないようにする
-        * 週末はスキップし、営業日ベースで積み上げる
-        """
-
         annual_drift_map = {
             "SP500": 0.07,
             "TOPIX": 0.04,
@@ -217,9 +193,8 @@ class SP500MarketService:
 
         current = start
         while current <= end:
-            if current.weekday() < 5:  # 月〜金のみ
-                noise = rng.uniform(-0.006, 0.006)  # ±0.6% 程度の揺らぎ
-                # 半年ごとに5%程度の調整を入れて drawdown を作る
+            if current.weekday() < 5:
+                noise = rng.uniform(-0.006, 0.006)
                 if (current.timetuple().tm_yday // 182) % 2 == 1:
                     noise -= 0.002
 
@@ -229,16 +204,6 @@ class SP500MarketService:
             current += timedelta(days=1)
 
         return history
-
-    def _to_iso_date(self, idx) -> str:
-        try:
-            return idx.date().isoformat()
-        except AttributeError:
-            try:
-                # pandas Timestamp may expose .to_pydatetime
-                return idx.to_pydatetime().date().isoformat()  # type: ignore[attr-defined]
-            except Exception:
-                return str(idx)
 
     def get_price_history(self, index_type: str = "SP500") -> List[Tuple[str, float]]:
         today = date.today()
@@ -261,7 +226,7 @@ class SP500MarketService:
                 return [(d, round(v, 2)) for d, v in nav_hist]
 
             symbol = self._resolve_symbol(index_type)
-            closes = self._download_close_series(symbol, start, today)
+            closes = self.provider.get_history(symbol, start, today)
             logger.info(
                 "Using yfinance history for %s (symbol=%s price_type=%s points=%d)",
                 index_type,
@@ -269,7 +234,7 @@ class SP500MarketService:
                 price_type,
                 len(closes),
             )
-            return [(self._to_iso_date(idx), round(float(val), 2)) for idx, val in closes.items()]
+            return closes
         except Exception as exc:
             logger.warning("Price history fetch failed (%s)", exc, exc_info=True)
             if not allow_synth:
@@ -306,11 +271,7 @@ class SP500MarketService:
                 return [(d, round(v, 2)) for d, v in nav_hist]
 
             symbol = self._resolve_symbol(index_type)
-            hist = yf.download(symbol, start=start, end=end + timedelta(days=1), interval="1d")
-            hist = hist.dropna()
-            if hist.empty:
-                raise ValueError("empty history")
-            closes = self._extract_close_series(hist)
+            closes = self.provider.get_history(symbol, start, end)
             logger.info(
                 "Using yfinance history for %s (symbol=%s price_type=%s points=%d)",
                 index_type,
@@ -318,7 +279,7 @@ class SP500MarketService:
                 price_type,
                 len(closes),
             )
-            return [(self._to_iso_date(idx), round(float(val), 2)) for idx, val in closes.items()]
+            return closes
         except Exception as exc:
             logger.warning("Price history fetch failed (%s)", exc, exc_info=True)
             if not fallback_allowed:
@@ -335,28 +296,21 @@ class SP500MarketService:
 
     def get_usd_jpy(self) -> float:
         try:
-            fx = yf.download("JPY=X", period="5d", interval="1d")
-            fx = fx.dropna()
-            if not fx.empty:
-                return round(float(fx["Close"].iloc[-1]), 4)
+            today = date.today()
+            fx_hist = self.provider.get_history("JPY=X", today - timedelta(days=10), today)
+            if fx_hist:
+                return round(float(fx_hist[-1][1]), 4)
         except Exception:
             pass
         return 150.0
 
     def get_fund_nav_jpy(self, sp_price_usd: float, usd_jpy: float) -> float:
-        """
-        eMAXIS Slim 米国株式（S&P500）の直近基準価額を取得する。
-
-        Yahoo! Finance 上のファンドコード（デフォルト: 03311187.T）を優先し、
-        取得できない場合は S&P500 指数を為替で円換算した値でフォールバックする。
-        """
-
         fund_symbol = os.getenv("SP500_FUND_SYMBOL", "03311187.T")
         try:
-            fund = yf.download(fund_symbol, period="1mo", interval="1d")
-            fund = fund.dropna()
-            if not fund.empty:
-                return round(float(fund["Close"].iloc[-1]), 2)
+            today = date.today()
+            fund_hist = self.provider.get_history(fund_symbol, today - timedelta(days=40), today)
+            if fund_hist:
+                return round(float(fund_hist[-1][1]), 2)
         except Exception:
             pass
 
@@ -370,25 +324,15 @@ class SP500MarketService:
             if price_type == "index_jpy":
                 symbol = self._resolve_symbol(index_type)
                 fx_symbol = self._resolve_fx_symbol(index_type)
-                ticker = yf.Ticker(symbol)
-                fx_ticker = yf.Ticker(fx_symbol) if fx_symbol else None
-                live = ticker.fast_info.get("lastPrice") if ticker.fast_info else None
-                fx_live = fx_ticker.fast_info.get("lastPrice") if fx_ticker and fx_ticker.fast_info else None
-                if live and fx_live:
-                    return round(float(live) * float(fx_live), 2)
+                if not fx_symbol:
+                    raise ValueError("fx_symbol required for index_jpy")
 
-                hist = ticker.history(period="5d", interval="1d")
-                fx_hist = fx_ticker.history(period="5d", interval="1d") if fx_ticker else None
-                if not hist.empty and fx_hist is not None and not fx_hist.empty:
-                    return round(float(hist["Close"].iloc[-1]) * float(fx_hist["Close"].iloc[-1]), 2)
-            else:
-                ticker = yf.Ticker(self._resolve_symbol(index_type))
-                live = ticker.fast_info.get("lastPrice") if ticker.fast_info else None
-                if live:
-                    return round(float(live), 2)
-                hist = ticker.history(period="5d", interval="1d")
-                if not hist.empty:
-                    return round(float(hist["Close"].iloc[-1]), 2)
+                live, _ = self.provider.get_current_price(symbol)
+                fx_live, _ = self.provider.get_current_price(fx_symbol)
+                return round(float(live) * float(fx_live), 2)
+
+            live, _ = self.provider.get_current_price(self._resolve_symbol(index_type))
+            return round(float(live), 2)
         except Exception:
             pass
 
