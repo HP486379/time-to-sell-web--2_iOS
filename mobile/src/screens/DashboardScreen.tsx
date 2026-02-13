@@ -11,7 +11,7 @@ import {
 } from 'react-native'
 import { Picker } from '@react-native-picker/picker'
 
-import { evaluateIndex } from '../../../shared/api'
+import { API_BASE, evaluateIndex } from '../../../shared/api'
 import { INDEX_LABELS, type IndexType } from '../../../shared/types'
 import type { EvaluateRequest, EvaluateResponse } from '../../../shared/types/evaluate'
 
@@ -46,14 +46,10 @@ export function DashboardScreen() {
     setStatus('loading')
     setError(null)
     try {
-      const expoEnv = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env
-      const next = await evaluateIndex(
-        {
-          ...defaultRequest,
-          index_type: indexType,
-        },
-        expoEnv?.EXPO_PUBLIC_API_BASE_URL,
-      )
+      const next = await evaluateIndex({
+        ...defaultRequest,
+        index_type: indexType,
+      })
       setResponse(next)
       setStatus(next.status === 'ready' ? 'ready' : next.status === 'degraded' ? 'degraded' : 'error')
     } catch (err) {
@@ -88,6 +84,7 @@ export function DashboardScreen() {
             <Picker.Item key={value} label={label} value={value} />
           ))}
         </Picker>
+        <Text style={{ color: subColor, fontSize: 12 }}>API: {API_BASE}</Text>
       </View>
 
       <View style={[styles.card, { backgroundColor: cardBg }]}>

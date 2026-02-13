@@ -1,25 +1,36 @@
 import type { EvaluateRequest, EvaluateResponse } from './types/evaluate'
 
-const localhostApiBase = 'http://localhost:8000'
+const ENV_API_BASE =
+  (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env
+    ?.EXPO_PUBLIC_API_BASE_URL
 
-const normalizeApiBase = (apiBaseUrl?: string): string => {
-  if (!apiBaseUrl || apiBaseUrl.trim().length === 0) return localhostApiBase
-  return apiBaseUrl.replace(/\/$/, '')
+const RENDER_API_BASE = 'https://time-to-sell-web-ios.onrender.com'
+
+const CANDIDATE_API_BASE = ENV_API_BASE ?? RENDER_API_BASE
+
+const isForbiddenLocalBase = (value: string): boolean => {
+  const lowered = value.toLowerCase()
+  return (
+    lowered.includes('localhost') ||
+    lowered.includes('127.0.0.1') ||
+    lowered.includes('192.168.')
+  )
 }
 
-const resolveDefaultApiBase = (): string => {
-  const env = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env
-  return normalizeApiBase(env?.EXPO_PUBLIC_API_BASE_URL)
+if (isForbiddenLocalBase(CANDIDATE_API_BASE)) {
+  throw new Error('Forbidden API base URL. localhost / 127.0.0.1 / 192.168.* は使用できません。')
 }
 
-const defaultApiBase = resolveDefaultApiBase()
+export const API_BASE = CANDIDATE_API_BASE
 
-export async function evaluateIndex(
-  payload: EvaluateRequest,
-  apiBaseUrl?: string,
-): Promise<EvaluateResponse> {
-  const base = normalizeApiBase(apiBaseUrl ?? defaultApiBase)
-  const res = await fetch(`${base}/api/evaluate`, {
+export function buildUrl(path: string) {
+  const base = API_BASE.replace(/\/$/, '')
+  const p = path.startsWith('/') ? path : `/${path}`
+  return `${base}${p}`
+}
+
+export async function evaluateIndex(payload: EvaluateRequest): Promise<EvaluateResponse> {
+  const res = await fetch(buildUrl('/api/evaluate'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
