@@ -20,6 +20,8 @@ function segmentButton(active: boolean, darkMode: boolean) {
   return [styles.segmentButton, darkMode ? styles.segmentButtonDark : styles.segmentButtonLight]
 }
 
+type DisplayMode = 'easy' | 'pro'
+
 export function DashboardScreen() {
   const darkMode = useColorScheme() === 'dark'
   const [status, setStatus] = useState<EvalStatus>('loading')
@@ -38,9 +40,11 @@ export function DashboardScreen() {
       const next = await evaluateIndex(defaultRequest)
       setResponse(next)
       setStatus(next.status === 'ready' ? 'ready' : next.status === 'degraded' ? 'degraded' : 'error')
+      setLastUpdatedAt(new Date())
     } catch (err) {
       setStatus('error')
       setError(err instanceof Error ? err.message : 'データ取得に失敗しました')
+      setLastUpdatedAt(new Date())
     }
   }, [])
 
@@ -143,6 +147,24 @@ export function DashboardScreen() {
             <Text style={{ color: subColor }}>{error ?? response?.reasons?.join(' / ') ?? 'エラーが発生しました。'}</Text>
           </View>
         )}
+      </View>
+
+      {status === 'loading' && (
+        <View style={[styles.sectionCard, { backgroundColor: colors.cardBg, borderColor: colors.border }]}>
+          <ActivityIndicator />
+          <Text style={{ color: colors.sub, marginTop: 8 }}>データ取得中...</Text>
+        </View>
+      )}
+
+      {(status === 'degraded' || status === 'error') && (
+        <View style={[styles.sectionCard, { backgroundColor: colors.cardBg, borderColor: colors.border }]}>
+          <Text style={{ color: '#EF4444', fontWeight: '900' }}>{status === 'degraded' ? 'degraded' : 'error'}</Text>
+          <Text style={{ color: colors.sub, marginTop: 6 }}>
+            {error ?? response?.reasons?.join(' / ') ?? 'エラーが発生しました。'}
+          </Text>
+        </View>
+      )}
+
       </ScrollView>
 
       <Pressable style={styles.fab} onPress={fetchEvaluate}>
