@@ -1,6 +1,6 @@
 # mobile (Expo TypeScript)
 
-iOS 向けに Web Dashboard と同等の「構造・挙動」を再現しつつ、Push 通知MVP（トークン取得→register→test受信）を含む構成です。
+iOS は Dashboard タブを **全画面WebView** で表示し、Web版（https://time-to-sell-web-2.vercel.app/）とUI/機能を一致させる構成です。Backtest / Push Debug タブは既存のまま残しています。
 
 ## セットアップ
 
@@ -16,6 +16,21 @@ Expo の public env を利用します。
 ```bash
 EXPO_PUBLIC_API_BASE_URL=https://time-to-sell-web-2.vercel.app
 ```
+
+Dashboard 表示URLは以下を優先します。
+
+```bash
+EXPO_PUBLIC_DASHBOARD_URL=https://time-to-sell-web-2.vercel.app/
+```
+
+未設定時は `https://time-to-sell-web-2.vercel.app/` を使用します。
+
+WebView 挙動:
+- 同一ドメイン遷移はアプリ内WebView
+- 外部ドメインはOS標準ブラウザで開く
+- Pull to Refresh 有効
+- 読み込み中はスピナー表示、失敗時は再読み込みボタン表示
+
 
 ローカル backend に向ける場合の例:
 
@@ -66,17 +81,12 @@ uvicorn main:app --reload --port 8000
 
 5. 実機で通知受信を確認
 
-## Dashboard UI の確認手順
+## Dashboard UI の確認手順（Web版一致）
 
-1. Dashboard タブを開く
-2. 対象インデックスを選択して evaluate を取得
-3. 総合スコアカードで `scores.total` が固定で表示されることを確認
-4. 時間軸タブ（短期/中期/長期）を切り替え、以下が連動することを確認
-   - `period_breakdowns[viewKey]` の内訳
-   - 指標（d / T_base / T_trend / macro_M）
-   - `period_scores[viewKey]`
-   - 期間説明文
-5. チャート表示期間がタブに応じて切り替わることを確認
-   - short: 1ヶ月
-   - mid: 6ヶ月
-   - long: 1年
+1. Dashboard タブを開き、`https://time-to-sell-web-2.vercel.app/` が全画面で表示されることを確認
+2. 「売り時くん」見出し、対象インデックス、総合スコア、時間軸カードがWeb版と一致することを確認
+3. 「重要イベント」が表示されることを確認
+4. チャート見た目がWeb版と一致することを確認
+5. 外部ドメイン遷移時にOSブラウザで開くことを確認
+6. 下方向スワイプでPull to Refreshが効くことを確認
+7. オフライン時にエラー表示と再読み込みボタンが出ることを確認
