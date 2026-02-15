@@ -1,4 +1,4 @@
-import type { IndexType } from './index'
+import type { IndexType } from '../types'
 
 export interface EvaluateRequest {
   total_quantity: number
@@ -12,8 +12,8 @@ export interface EconomicEvent {
   name: string
   importance: number
   date: string
-  source?: string
-  description?: string
+  source?: string | null
+  description?: string | null
 }
 
 export interface PricePoint {
@@ -22,6 +22,28 @@ export interface PricePoint {
   ma20: number | null
   ma60: number | null
   ma200: number | null
+}
+
+export interface PeriodBreakdown {
+  scores: {
+    technical: number
+    macro: number
+    event_adjustment: number
+  }
+  technical_details: {
+    d: number
+    T_base: number
+    T_trend: number
+    T_conv_adj?: number
+    technical_score_raw?: number
+  }
+  macro_details: {
+    macro_M?: number
+    M?: number
+    p_r?: number
+    p_cpi?: number
+    p_vix?: number
+  }
 }
 
 export interface EvaluateResponse {
@@ -44,81 +66,25 @@ export interface EvaluateResponse {
     total: number
     label: string
     period_total?: number
+    [key: string]: unknown
   }
   period_scores?: {
     short: number
     mid: number
     long: number
+    [key: string]: number
   }
   period_meta?: {
     short_window: number
     mid_window: number
     long_window: number
+    [key: string]: number
   }
   period_breakdowns?: {
-    short: {
-      scores: {
-        technical: number
-        macro: number
-        event_adjustment: number
-      }
-      technical_details: {
-        d: number
-        T_base: number
-        T_trend: number
-        T_conv_adj?: number
-        technical_score_raw?: number
-      }
-      macro_details: {
-        macro_M?: number
-        M?: number
-        p_r?: number
-        p_cpi?: number
-        p_vix?: number
-      }
-    }
-    mid: {
-      scores: {
-        technical: number
-        macro: number
-        event_adjustment: number
-      }
-      technical_details: {
-        d: number
-        T_base: number
-        T_trend: number
-        T_conv_adj?: number
-        technical_score_raw?: number
-      }
-      macro_details: {
-        macro_M?: number
-        M?: number
-        p_r?: number
-        p_cpi?: number
-        p_vix?: number
-      }
-    }
-    long: {
-      scores: {
-        technical: number
-        macro: number
-        event_adjustment: number
-      }
-      technical_details: {
-        d: number
-        T_base: number
-        T_trend: number
-        T_conv_adj?: number
-        technical_score_raw?: number
-      }
-      macro_details: {
-        macro_M?: number
-        M?: number
-        p_r?: number
-        p_cpi?: number
-        p_vix?: number
-      }
-    }
+    short: PeriodBreakdown
+    mid: PeriodBreakdown
+    long: PeriodBreakdown
+    [key: string]: PeriodBreakdown
   }
   technical_details: {
     d: number
@@ -127,6 +93,7 @@ export interface EvaluateResponse {
     T_conv_adj?: number
     convergence?: {
       side?: 'down_convergence' | 'up_convergence' | 'neutral'
+      [key: string]: unknown
     }
     multi_ma?: {
       dev10?: number | null
@@ -135,13 +102,16 @@ export interface EvaluateResponse {
       level?: number
       label?: string
       text?: string
+      [key: string]: unknown
     }
+    [key: string]: unknown
   }
   macro_details: {
     p_r: number
     p_cpi: number
     p_vix: number
     M: number
+    [key: string]: unknown
   }
   event_details: {
     E_adj: number
@@ -149,20 +119,8 @@ export interface EvaluateResponse {
     effective_event: EconomicEvent | null
     events?: EconomicEvent[]
     warning?: string
+    [key: string]: unknown
   }
   price_series: PricePoint[]
-}
-
-export interface SyntheticNavResponse {
-  asOf: string
-  priceUsd: number
-  usdJpy: number
-  navJpy: number
-  source: string
-}
-
-export interface FundNavResponse {
-  asOf: string
-  navJpy: number
-  source: string
+  [key: string]: unknown
 }
