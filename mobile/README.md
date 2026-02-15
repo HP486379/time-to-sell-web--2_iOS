@@ -90,3 +90,37 @@ uvicorn main:app --reload --port 8000
 5. 外部ドメイン遷移時にOSブラウザで開くことを確認
 6. 下方向スワイプでPull to Refreshが効くことを確認
 7. オフライン時にエラー表示と再読み込みボタンが出ることを確認
+
+
+## 検証手順（Expo Goは使用しない）
+
+> このプロジェクトは SDK 52 のため、iOS Expo Go（SDK 54）では検証しません。development build または TestFlight を使用してください。
+
+### Windows PowerShell
+
+```powershell
+cd mobile
+npm install
+npx expo start --dev-client
+```
+
+### iOS development build
+
+```powershell
+cd mobile
+eas build --profile development --platform ios
+```
+
+### TestFlight向け production build
+
+```powershell
+cd mobile
+eas build --profile production --platform ios
+```
+
+確認観点:
+- DashboardタブでWeb版と同一の見た目（見出し、重要イベント、チャート）
+- Pull to Refresh が動作
+- 外部URLがSafariで開く
+- オフライン時にエラー表示＋再読み込みボタン
+- ノッチ/ステータスバーで上部が欠けない
