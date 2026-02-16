@@ -1,23 +1,41 @@
-import pandas as pd
-import yfinance as yf
+import os
+import sys
+from datetime import date
 
-from backend.services.sp500_market_service import SP500MarketService
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
+from services.market_data_provider import MarketDataProvider
+from services.price_history_service import PriceHistoryService
+from services.providers.yahoo_provider import YahooProvider
+from services.sp500_market_service import SP500MarketService
 
 
-def test_get_price_history_range_handles_dataframe(monkeypatch):
+class MockProvider(MarketDataProvider):
+    def get_current_price(self, symbol: str) -> tuple[float, str]:
+        return 123.45, "mock"
+
+    def get_history(self, symbol: str, start: date, end: date) -> list[tuple[str, float]]:
+        return [
+            (start.isoformat(), 100.0),
+            (end.isoformat(), 101.5),
+        ]
+
+
+def test_market_service_uses_yahoo_provider_by_default(monkeypatch):
+    monkeypatch.delenv("MARKET_DATA_PROVIDER", raising=False)
     service = SP500MarketService(symbol="TEST")
+    assert isinstance(service.provider, YahooProvider)
 
-    dates = pd.date_range("2020-01-01", periods=3, freq="B")
-    df = pd.DataFrame({"Close": [100.0, 101.5, 102.25]}, index=dates)
 
-    def fake_download(symbol, start, end, interval):  # pragma: no cover - simple stub
-        return df
+def test_price_history_service_works_with_mock_provider():
+    market_service = SP500MarketService(symbol="TEST", provider=MockProvider())
+    price_history_service = PriceHistoryService(market_service)
 
-    monkeypatch.setattr(yf, "download", fake_download)
+    start = date(2020, 1, 1)
+    end = date(2020, 1, 3)
+    history = price_history_service.get_history("SP500", start, end)
 
-    history = service.get_price_history_range(dates[0].date(), dates[-1].date(), allow_fallback=False)
     assert history == [
-        (dates[0].date().isoformat(), 100.0),
-        (dates[1].date().isoformat(), 101.5),
-        (dates[2].date().isoformat(), 102.25),
+        (start.isoformat(), 100.0),
+        (end.isoformat(), 101.5),
     ]
