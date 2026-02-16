@@ -2,6 +2,7 @@ from datetime import date, datetime, time, timedelta, timezone
 import uuid
 from typing import List, Optional
 import logging
+from pathlib import Path
 from enum import Enum
 import requests
 
@@ -20,6 +21,7 @@ from services.macro_data_service import MacroDataService
 from services.event_service import EventService
 from services.nav_service import FundNavService
 from services.backtest_service import BacktestService
+from services.push_service import PushService
 
 
 # ======================
@@ -39,6 +41,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.get("/health")
+def health():
+    return {"ok": True}
 
 
 # ======================
@@ -184,6 +191,7 @@ macro_service = MacroDataService()
 event_service = EventService()          # ← ここは必ず EventService()
 nav_service = FundNavService()
 backtest_service = BacktestService(market_service, macro_service, event_service)
+push_service = PushService(storage_path=str(Path(__file__).resolve().parent / "data" / "push_registrations.json"))
 
 JST = timezone(timedelta(hours=9))
 
@@ -225,7 +233,7 @@ def _send_expo_push(token: str, title: str, body: str, data: Optional[dict] = No
 # ======================
 
 @app.get("/api/health")
-def health():
+def api_health():
     return {"status": "ok"}
 
 
@@ -804,6 +812,81 @@ def get_events_api(date_str: str = Query(None)):
     except Exception as e:
         # 既存仕様に合わせて握りつぶし（現状の挙動を維持）
         return {"error": str(e)}
+
+
+# ======================
+# Push Notification APIs
+# ======================
+
+@app.post("/api/push/register")
+@app.post("/push/register")
+def push_register(payload: PushRegisterRequest):
+    try:
+        reg = push_service.register(
+            install_id=payload.install_id,
+            expo_push_token=payload.expo_push_token,
+            index_type=payload.index_type.value,
+            threshold=payload.threshold,
+            paid=payload.paid,
+        )
+    except ValueError as exc:
+        if str(exc) == "upgrade_required":
+            raise HTTPException(status_code=403, detail="upgrade_required") from exc
+        raise
+
+    return {"ok": True, "registration": reg.__dict__}
+
+
+@app.post("/api/push/run", response_model=PushRunResponse)
+@app.post("/push/run", response_model=PushRunResponse)
+def push_run():
+    def _evaluate_by_index(index_type_raw: str) -> dict:
+        position = PositionRequest(
+            total_quantity=1.0,
+            avg_cost=1.0,
+            index_type=index_type_raw,
+            score_ma=200,
+        )
+        return _evaluate(position)
+
+    results = push_service.run_for_paid_users(_evaluate_by_index)
+    sent = sum(1 for r in results if r.sent)
+    skipped = len(results) - sent
+    return {
+        "processed": len(results),
+        "sent": sent,
+        "skipped": skipped,
+        "results": [r.__dict__ for r in results],
+    }
+
+
+@app.post("/api/push/test")
+@app.post("/push/test")
+def push_test(payload: PushTestRequest):
+    expo_token = payload.expo_push_token
+
+    if not expo_token and payload.install_id:
+        reg = push_service.find_by_install_id(payload.install_id)
+        if not reg:
+            raise HTTPException(status_code=404, detail={"reason": "install_id_not_found"})
+        expo_token = reg.expo_push_token
+
+    if not expo_token:
+        raise HTTPException(status_code=400, detail={"reason": "expo_push_token_or_install_id_required"})
+
+    try:
+        response_json = push_service.send_expo_push(
+            expo_token=expo_token,
+            title=payload.title,
+            body=payload.body,
+            data={"type": "test"},
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail={"reason": "push_send_failed", "message": str(exc)}) from exc
+
+    return {"ok": True, "expo_response": response_json}
+
+
 
 
 # ======================

@@ -4,3 +4,5 @@ frontend/dist/
 backend/.venv/
 __pycache__/
 *.pyc
+
+backend/data/push_registrations.json
