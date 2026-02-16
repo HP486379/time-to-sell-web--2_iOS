@@ -168,13 +168,16 @@ class BacktestResponse(BaseModel):
 
 
 class PushRegisterRequest(BaseModel):
-    token: str
-    platform: str
-    appVersion: Optional[str] = None
+    install_id: str
+    expo_push_token: str
+    index_type: IndexType = IndexType.SP500
+    threshold: float = 80.0
+    paid: bool = False
 
 
 class PushTestRequest(BaseModel):
-    token: Optional[str] = None
+    expo_push_token: Optional[str] = None
+    install_id: Optional[str] = None
     title: str = "売り時くん テスト通知"
     body: str = "通知のテスト配信です"
 
@@ -239,42 +242,53 @@ def api_health():
 
 @app.post("/api/push/register")
 def push_register(payload: PushRegisterRequest):
-    platform = payload.platform.lower()
-    if platform != "ios":
-        raise HTTPException(status_code=400, detail={"reason": "unsupported_platform"})
-
-    _push_registrations[payload.token] = {
-        "token": payload.token,
-        "platform": platform,
-        "appVersion": payload.appVersion,
+    _push_registrations[payload.install_id] = {
+        "install_id": payload.install_id,
+        "expo_push_token": payload.expo_push_token,
+        "index_type": payload.index_type.value,
+        "threshold": payload.threshold,
+        "paid": payload.paid,
+        "platform": "ios",
         "registered_at": datetime.now(timezone.utc).isoformat(),
     }
 
-    logger.info("[push] register token=%s platform=%s", payload.token, platform)
-    return {"ok": True, "registered": _push_registrations[payload.token]}
+    logger.info(
+        "[push] register install_id=%s index_type=%s paid=%s",
+        payload.install_id,
+        payload.index_type.value,
+        payload.paid,
+    )
+    return {"ok": True, "registration": _push_registrations[payload.install_id]}
 
 
 @app.post("/api/push/test")
 def push_test(payload: PushTestRequest):
-    token = payload.token
-    if not token:
+    expo_token = payload.expo_push_token
+
+    if not expo_token and payload.install_id:
+        registration = _push_registrations.get(payload.install_id)
+        if not registration:
+            raise HTTPException(status_code=404, detail={"reason": "install_id_not_found"})
+        expo_token = registration["expo_push_token"]
+
+    if not expo_token:
         if not _push_registrations:
             raise HTTPException(status_code=404, detail={"reason": "no_registered_token"})
-        token = next(reversed(_push_registrations.keys()))
+        expo_token = next(reversed(_push_registrations.values()))["expo_push_token"]
 
     try:
         expo_response = _send_expo_push(
-            token=token,
+            token=expo_token,
             title=payload.title,
             body=payload.body,
             data={"type": "test"},
         )
-        logger.info("[push] test sent token=%s response=%s", token, expo_response)
+        logger.info("[push] test sent token=%s response=%s", expo_token, expo_response)
         # 無効tokenはExpoレスポンス内で DeviceNotRegistered が返ることがあるため、
         # 運用時は receipts を確認して登録解除フローを追加する。
-        return {"ok": True, "token": token, "expo_response": expo_response}
+        return {"ok": True, "expo_push_token": expo_token, "expo_response": expo_response}
     except requests.RequestException as exc:
-        logger.exception("[push] test send failed token=%s", token)
+        logger.exception("[push] test send failed token=%s", expo_token)
         raise HTTPException(status_code=502, detail={"reason": "push_send_failed", "message": str(exc)}) from exc
 
 

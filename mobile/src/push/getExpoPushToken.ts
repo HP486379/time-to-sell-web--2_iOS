@@ -1,14 +1,30 @@
 import * as Device from 'expo-device'
 import * as Notifications from 'expo-notifications'
+import Constants from 'expo-constants'
 
 export type PushTokenResult = {
   token: string | null
   reason: string | null
 }
 
+function resolveProjectId(): string | null {
+  const fromExpoConfig = Constants.expoConfig?.extra?.eas?.projectId
+  const fromEasConfig = Constants.easConfig?.projectId
+  return fromExpoConfig ?? fromEasConfig ?? null
+}
+
 export async function getExpoPushTokenDetailed(): Promise<PushTokenResult> {
   if (!Device.isDevice) {
     return { token: null, reason: '実機ではないため Push Token を取得できません。' }
+  }
+
+  const projectId = resolveProjectId()
+  if (!projectId) {
+    return {
+      token: null,
+      reason:
+        'EAS projectId を取得できません。app.json/app.config と EAS Project 設定を確認してください（Constants.expoConfig.extra.eas.projectId または Constants.easConfig.projectId が必要です）。',
+    }
   }
 
   const { status: existingStatus } = await Notifications.getPermissionsAsync()
@@ -26,7 +42,7 @@ export async function getExpoPushTokenDetailed(): Promise<PushTokenResult> {
     }
   }
 
-  const token = (await Notifications.getExpoPushTokenAsync()).data
+  const token = (await Notifications.getExpoPushTokenAsync({ projectId })).data
   return { token, reason: null }
 }
 

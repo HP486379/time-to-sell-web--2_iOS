@@ -16,6 +16,8 @@ Expo の public env を利用します。
 ```bash
 EXPO_PUBLIC_API_BASE_URL=https://time-to-sell-web-2.vercel.app
 EXPO_PUBLIC_BACKEND_URL=https://time-to-sell-web-ios.onrender.com
+# 任意: WebViewのデバッグログ
+EXPO_PUBLIC_WEBVIEW_DEBUG=1
 ```
 
 Dashboard 表示URLは以下を優先します。
@@ -77,11 +79,13 @@ uvicorn main:app --reload --port 8000
 ```
 
    - Swagger: `http://localhost:8000/docs`
+   - `/api/push/register` を Try it out
+       `{"install_id":"<install_id>","expo_push_token":"ExponentPushToken[...]","index_type":"SP500","threshold":80,"paid":false}`
    - `/api/push/test` を Try it out
      - token 直指定（切り分け）
-       `{"expo_push_token":"ExponentPushToken[...]"}`
+       `{"expo_push_token":"ExponentPushToken[...]","title":"テスト","body":"通知テスト"}`
      - install_id 指定（本命導線）
-       `{"install_id":"<install_id>"}`
+       `{"install_id":"<install_id>","title":"テスト","body":"通知テスト"}`
 
 5. 実機で通知受信を確認
 
@@ -99,21 +103,51 @@ uvicorn main:app --reload --port 8000
 
 1. iOS の通知権限を許可してアプリ起動
 2. Xcode / EAS logs で `"[push] token 取得成功"` を確認
-3. `"[push] register 成功"` が出れば backend 登録完了
+3. `"[push] register 成功"` が出れば backend 登録完了（install_id も同時に確認）
 
 curl 例:
 
 ```bash
 curl -X POST https://time-to-sell-web-ios.onrender.com/api/push/register \
   -H "Content-Type: application/json" \
-  -d '{"token":"ExponentPushToken[xxxx]","platform":"ios","appVersion":"1.0.0"}'
+  -d '{"install_id":"ios-install-xxxx","expo_push_token":"ExponentPushToken[xxxx]","index_type":"SP500","threshold":80,"paid":false}'
 
 curl -X POST https://time-to-sell-web-ios.onrender.com/api/push/test \
   -H "Content-Type: application/json" \
-  -d '{"token":"ExponentPushToken[xxxx]","title":"テスト","body":"通知テスト"}'
+  -d '{"install_id":"ios-install-xxxx","title":"テスト","body":"通知テスト"}'
 ```
 
 `/api/push/test` は token 省略時、最後に登録された token に送信します。
+
+PowerShell (Invoke-WebRequest) 例:
+
+```powershell
+$registerBody = @{
+  install_id = "ios-install-xxxx"
+  expo_push_token = "ExponentPushToken[xxxx]"
+  index_type = "SP500"
+  threshold = 80
+  paid = $false
+} | ConvertTo-Json
+
+Invoke-WebRequest -UseBasicParsing `
+  -Uri "https://time-to-sell-web-ios.onrender.com/api/push/register" `
+  -Method POST `
+  -ContentType "application/json" `
+  -Body $registerBody
+
+$testBody = @{
+  install_id = "ios-install-xxxx"
+  title = "テスト"
+  body = "通知テスト"
+} | ConvertTo-Json
+
+Invoke-WebRequest -UseBasicParsing `
+  -Uri "https://time-to-sell-web-ios.onrender.com/api/push/test" `
+  -Method POST `
+  -ContentType "application/json" `
+  -Body $testBody
+```
 
 
 ## 検証手順（Expo Goは使用しない）
@@ -148,3 +182,6 @@ eas build --profile production --platform ios
 - 外部URLがSafariで開く
 - オフライン時にエラー表示＋再読み込みボタン
 - ノッチ/ステータスバーで上部が欠けない
+
+
+> Expo Push Token は `getExpoPushTokenAsync({ projectId })` で取得しています。`projectId` が取れない場合は Push Debug 画面に理由が表示されます。
