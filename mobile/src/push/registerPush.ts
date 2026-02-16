@@ -1,6 +1,8 @@
 import * as Application from 'expo-application'
 import * as SecureStore from 'expo-secure-store'
 
+import { DEFAULT_FREE_INDEX_TYPE } from '../constants/indexTypes'
+
 const BACKEND_URL =
   (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env
     ?.EXPO_PUBLIC_BACKEND_URL ?? 'https://time-to-sell-web-ios.onrender.com'
@@ -39,7 +41,7 @@ export async function registerPushToken(expoPushToken: string): Promise<Register
     body: JSON.stringify({
       install_id: installId,
       expo_push_token: expoPushToken,
-      index_type: 'SP500',
+      index_type: DEFAULT_FREE_INDEX_TYPE,
       threshold: 80,
       paid: false,
     }),

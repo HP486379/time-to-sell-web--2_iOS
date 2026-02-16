@@ -67,6 +67,8 @@ const defaultRequest: EvaluateRequest = {
 
 const REFRESH_INTERVAL_MS = 5 * 60 * 1000
 
+const INDEX_TYPES: IndexType[] = ['SP500']
+
 type DisplayMode = 'pro' | 'simple'
 type StartOption = '1m' | '3m' | '6m' | '1y' | '3y' | '5y' | 'max' | 'custom'
 type PriceDisplayMode = 'normalized' | 'actual'
@@ -229,7 +231,7 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
   const [lastRequest, setLastRequest] = useState<EvaluateRequest>(defaultRequest)
   const [viewDays, setViewDays] = useState<ScoreMaDays>(defaultRequest.score_ma as ScoreMaDays)
   const [indexType, setIndexType] = useState<IndexType>('SP500')
-  const effectiveIndexType: IndexType = PAID_FEATURES_ENABLED ? indexType : 'SP500'
+  const effectiveIndexType: IndexType = indexType
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
   const [showDetails, setShowDetails] = useState(false)
   const [startOption, setStartOption] = useState<StartOption>('max')
@@ -258,11 +260,10 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
 
 
   useEffect(() => {
-    const normalized = normalizeIndexTypeForPlan(indexType)
-    if (normalized !== indexType) {
+    if (!INDEX_TYPES.includes(indexType)) {
       setIndexType('SP500')
     }
-    if (!PAID_FEATURES_ENABLED && lastRequest.index_type !== 'SP500') {
+    if (lastRequest.index_type !== 'SP500') {
       setLastRequest((prev) => ({ ...prev, index_type: 'SP500' }))
     }
   }, [indexType, lastRequest.index_type])
@@ -756,25 +757,21 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
       </Box>
 
       <Box display="flex" justifyContent="space-between" alignItems="center" gap={1} flexWrap="wrap">
-        {PAID_FEATURES_ENABLED ? (
-          <FormControl size="small" sx={{ minWidth: 200 }}>
-            <InputLabel id="index-select-label">対象インデックス</InputLabel>
-            <Select
-              labelId="index-select-label"
-              value={effectiveIndexType}
-              label="対象インデックス"
-              onChange={(e) => setIndexType(e.target.value as IndexType)}
-            >
-              {AVAILABLE_INDEX_TYPES.map((key) => (
-                <MenuItem key={key} value={key}>
-                  {INDEX_LABELS[key]}
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-        ) : (
-          <Box />
-        )}
+        <FormControl size="small" sx={{ minWidth: 200 }}>
+          <InputLabel id="index-select-label">対象インデックス</InputLabel>
+          <Select
+            labelId="index-select-label"
+            value={effectiveIndexType}
+            label="対象インデックス"
+            onChange={(e) => setIndexType(e.target.value as IndexType)}
+          >
+            {INDEX_TYPES.map((key) => (
+              <MenuItem key={key} value={key}>
+                {INDEX_LABELS[key]}
+              </MenuItem>
+            ))}
+          </Select>
+        </FormControl>
 
         <Box display="flex" alignItems="center" gap={1}>
           <Chip label={`最終更新: ${lastUpdatedLabel}`} size="small" />
