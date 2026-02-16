@@ -29,13 +29,8 @@ import {
 import axios from 'axios'
 import dayjs from 'dayjs'
 import { AnimatePresence, motion } from 'framer-motion'
-import {
-  EvaluateRequest,
-  EvaluateResponse,
-  FundNavResponse,
-  SyntheticNavResponse,
-  PricePoint,
-} from '../types/api'
+import type { EvaluateRequest, EvaluateResponse, PricePoint } from '../../../shared/types/evaluate'
+import type { FundNavResponse, SyntheticNavResponse } from '../../../shared/types'
 import ScoreSummaryCard from './ScoreSummaryCard'
 import PositionForm from './PositionForm'
 import PriceChart from './PriceChart'

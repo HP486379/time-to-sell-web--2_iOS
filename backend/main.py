@@ -3,6 +3,7 @@ import uuid
 from typing import List, Optional
 import logging
 from enum import Enum
+import requests
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -159,6 +160,18 @@ class BacktestResponse(BaseModel):
     buy_hold_history: List[PortfolioPoint]
 
 
+class PushRegisterRequest(BaseModel):
+    token: str
+    platform: str
+    appVersion: Optional[str] = None
+
+
+class PushTestRequest(BaseModel):
+    token: Optional[str] = None
+    title: str = "売り時くん テスト通知"
+    body: str = "通知のテスト配信です"
+
+
 # ======================
 # Services
 # ======================
@@ -188,6 +201,24 @@ _cached_snapshot = {}
 _cached_at: dict[str, datetime] = {}
 MIN_PRICE_POINTS = 200
 
+_push_registrations: dict[str, dict] = {}
+
+
+def _send_expo_push(token: str, title: str, body: str, data: Optional[dict] = None) -> dict:
+    payload = {
+        "to": token,
+        "title": title,
+        "body": body,
+        "data": data or {},
+    }
+    response = requests.post(
+        "https://exp.host/--/api/v2/push/send",
+        json=payload,
+        timeout=10,
+    )
+    response.raise_for_status()
+    return response.json()
+
 
 # ======================
 # Health Check
@@ -196,6 +227,47 @@ MIN_PRICE_POINTS = 200
 @app.get("/api/health")
 def health():
     return {"status": "ok"}
+
+
+@app.post("/api/push/register")
+def push_register(payload: PushRegisterRequest):
+    platform = payload.platform.lower()
+    if platform != "ios":
+        raise HTTPException(status_code=400, detail={"reason": "unsupported_platform"})
+
+    _push_registrations[payload.token] = {
+        "token": payload.token,
+        "platform": platform,
+        "appVersion": payload.appVersion,
+        "registered_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+    logger.info("[push] register token=%s platform=%s", payload.token, platform)
+    return {"ok": True, "registered": _push_registrations[payload.token]}
+
+
+@app.post("/api/push/test")
+def push_test(payload: PushTestRequest):
+    token = payload.token
+    if not token:
+        if not _push_registrations:
+            raise HTTPException(status_code=404, detail={"reason": "no_registered_token"})
+        token = next(reversed(_push_registrations.keys()))
+
+    try:
+        expo_response = _send_expo_push(
+            token=token,
+            title=payload.title,
+            body=payload.body,
+            data={"type": "test"},
+        )
+        logger.info("[push] test sent token=%s response=%s", token, expo_response)
+        # 無効tokenはExpoレスポンス内で DeviceNotRegistered が返ることがあるため、
+        # 運用時は receipts を確認して登録解除フローを追加する。
+        return {"ok": True, "token": token, "expo_response": expo_response}
+    except requests.RequestException as exc:
+        logger.exception("[push] test send failed token=%s", token)
+        raise HTTPException(status_code=502, detail={"reason": "push_send_failed", "message": str(exc)}) from exc
 
 
 # ======================
