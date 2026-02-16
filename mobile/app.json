@@ -10,13 +10,21 @@
     ],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.timetosell.mobile"
+      "bundleIdentifier": "com.timetosell.mobile",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "plugins": [
       "expo-notifications"
     ],
     "updates": {
       "enabled": false
+    },
+    "extra": {
+      "eas": {
+        "projectId": "6565316a-da68-4256-acc2-6f1fc6d7cb22"
+      }
     }
   }
 }
