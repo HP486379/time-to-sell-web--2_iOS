@@ -1,32 +1,25 @@
 import * as Application from 'expo-application'
-import * as SecureStore from 'expo-secure-store'
 
-import { API_BASE, buildUrl } from '../../../shared/api'
+const BACKEND_URL =
+  (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env
+    ?.EXPO_PUBLIC_BACKEND_URL ?? 'https://time-to-sell-web-ios.onrender.com'
 
-const INSTALL_ID_KEY = 'timetosell_install_id'
-
-async function getOrCreateInstallId(): Promise<string> {
-  const existing = await SecureStore.getItemAsync(INSTALL_ID_KEY)
-  if (existing) return existing
-
-  const generated =
-    Application.getIosIdForVendorAsync
-      ? (await Application.getIosIdForVendorAsync()) ?? `install-${Date.now()}`
-      : `install-${Date.now()}`
-
-  await SecureStore.setItemAsync(INSTALL_ID_KEY, generated)
-  return generated
+function buildBackendUrl(path: string): string {
+  const base = BACKEND_URL.replace(/\/$/, '')
+  const p = path.startsWith('/') ? path : `/${path}`
+  return `${base}${p}`
 }
 
 export async function registerPushToken(expoPushToken: string): Promise<void> {
-  const installId = await getOrCreateInstallId()
+  const appVersion = Application.nativeApplicationVersion ?? undefined
 
-  const res = await fetch(buildUrl('/api/push/register'), {
+  const res = await fetch(buildBackendUrl('/api/push/register'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      install_id: installId,
-      expo_push_token: expoPushToken,
+      token: expoPushToken,
+      platform: 'ios',
+      appVersion,
     }),
   })
 
@@ -35,5 +28,5 @@ export async function registerPushToken(expoPushToken: string): Promise<void> {
     throw new Error(`push register failed: ${res.status} ${text}`)
   }
 
-  console.log('[push] register 成功 install_id=', installId, 'api=', API_BASE)
+  console.log('[push] register 成功 token=', expoPushToken, 'backend=', BACKEND_URL)
 }

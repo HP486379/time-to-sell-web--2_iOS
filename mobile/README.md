@@ -15,6 +15,7 @@ Expo の public env を利用します。
 
 ```bash
 EXPO_PUBLIC_API_BASE_URL=https://time-to-sell-web-2.vercel.app
+EXPO_PUBLIC_BACKEND_URL=https://time-to-sell-web-ios.onrender.com
 ```
 
 Dashboard 表示URLは以下を優先します。
@@ -24,6 +25,9 @@ EXPO_PUBLIC_DASHBOARD_URL=https://time-to-sell-web-2.vercel.app/
 ```
 
 未設定時は `https://time-to-sell-web-2.vercel.app/` を使用します。
+
+Push登録先の backend は `EXPO_PUBLIC_BACKEND_URL` を優先し、未設定時は
+`https://time-to-sell-web-ios.onrender.com` を使用します。
 
 WebView 挙動:
 - 同一ドメイン遷移はアプリ内WebView
@@ -90,6 +94,26 @@ uvicorn main:app --reload --port 8000
 5. 外部ドメイン遷移時にOSブラウザで開くことを確認
 6. 下方向スワイプでPull to Refreshが効くことを確認
 7. オフライン時にエラー表示と再読み込みボタンが出ることを確認
+
+## Push 通知の確認（backend API）
+
+1. iOS の通知権限を許可してアプリ起動
+2. Xcode / EAS logs で `"[push] token 取得成功"` を確認
+3. `"[push] register 成功"` が出れば backend 登録完了
+
+curl 例:
+
+```bash
+curl -X POST https://time-to-sell-web-ios.onrender.com/api/push/register \
+  -H "Content-Type: application/json" \
+  -d '{"token":"ExponentPushToken[xxxx]","platform":"ios","appVersion":"1.0.0"}'
+
+curl -X POST https://time-to-sell-web-ios.onrender.com/api/push/test \
+  -H "Content-Type: application/json" \
+  -d '{"token":"ExponentPushToken[xxxx]","title":"テスト","body":"通知テスト"}'
+```
+
+`/api/push/test` は token 省略時、最後に登録された token に送信します。
 
 
 ## 検証手順（Expo Goは使用しない）
