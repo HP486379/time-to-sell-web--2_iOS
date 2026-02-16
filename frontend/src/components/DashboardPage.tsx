@@ -29,13 +29,8 @@ import {
 import axios from 'axios'
 import dayjs from 'dayjs'
 import { AnimatePresence, motion } from 'framer-motion'
-import {
-  EvaluateRequest,
-  EvaluateResponse,
-  FundNavResponse,
-  SyntheticNavResponse,
-  PricePoint,
-} from '../types/api'
+import type { EvaluateRequest, EvaluateResponse, PricePoint } from '../../../shared/types/evaluate'
+import type { FundNavResponse, SyntheticNavResponse } from '../../../shared/types'
 import ScoreSummaryCard from './ScoreSummaryCard'
 import PositionForm from './PositionForm'
 import PriceChart from './PriceChart'
@@ -47,7 +42,7 @@ import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined'
 import SimpleAlertCard from './SimpleAlertCard'
 import HoverTooltip from './HoverTooltip'
 import { type ScoreMaDays } from '../constants/maAvatarMap'
-import { INDEX_LABELS, PRICE_TITLE_MAP, type IndexType } from '../types/index'
+import { AVAILABLE_INDEX_TYPES, INDEX_LABELS, PRICE_TITLE_MAP, normalizeIndexTypeForPlan, PAID_FEATURES_ENABLED, type IndexType } from '../types/index'
 import { getScoreZoneText } from '../utils/alertState'
 import SellTimingAvatarCard from './SellTimingAvatarCard'
 import { decideSellAction } from '../domain/sellDecision'
@@ -234,6 +229,7 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
   const [lastRequest, setLastRequest] = useState<EvaluateRequest>(defaultRequest)
   const [viewDays, setViewDays] = useState<ScoreMaDays>(defaultRequest.score_ma as ScoreMaDays)
   const [indexType, setIndexType] = useState<IndexType>('SP500')
+  const effectiveIndexType: IndexType = PAID_FEATURES_ENABLED ? indexType : 'SP500'
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
   const [showDetails, setShowDetails] = useState(false)
   const [startOption, setStartOption] = useState<StartOption>('max')
@@ -256,23 +252,34 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
   const [eventsError, setEventsError] = useState<string | null>(null)
 
   const tooltipTexts = useMemo(
-    () => buildTooltips(indexType, lastRequest.score_ma),
-    [indexType, lastRequest.score_ma],
+    () => buildTooltips(effectiveIndexType, lastRequest.score_ma),
+    [effectiveIndexType, lastRequest.score_ma],
   )
 
-  const response = responses[indexType] ?? null
-  const evalStatus = evalStatusMap[indexType] ?? (response ? 'ready' : 'loading')
-  const evalReasons = evalReasonsMap[indexType] ?? []
-  const evalStatusMessage = evalStatusMessageMap[indexType]
+
+  useEffect(() => {
+    const normalized = normalizeIndexTypeForPlan(indexType)
+    if (normalized !== indexType) {
+      setIndexType('SP500')
+    }
+    if (!PAID_FEATURES_ENABLED && lastRequest.index_type !== 'SP500') {
+      setLastRequest((prev) => ({ ...prev, index_type: 'SP500' }))
+    }
+  }, [indexType, lastRequest.index_type])
+
+  const response = responses[effectiveIndexType] ?? null
+  const evalStatus = evalStatusMap[effectiveIndexType] ?? (response ? 'ready' : 'loading')
+  const evalReasons = evalReasonsMap[effectiveIndexType] ?? []
+  const evalStatusMessage = evalStatusMessageMap[effectiveIndexType]
   const showScores = evalStatus === 'ready' || evalStatus === 'refreshing'
   const displayResponse = showScores ? response : null
   const totalScore = displayResponse?.scores?.total
-  const priceSeries = priceSeriesMap[indexType] ?? []
+  const priceSeries = priceSeriesMap[effectiveIndexType] ?? []
 
   const handleRetry = () => {
     setEvalStatusMap((prev) => ({
       ...prev,
-      [indexType]: response ? 'refreshing' : 'loading',
+      [effectiveIndexType]: response ? 'refreshing' : 'loading',
     }))
     setIsEvalRetrying(false)
     void fetchAll()
@@ -447,7 +454,7 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
   }
 
   const fetchNavs = async () => {
-    if (indexType !== 'SP500') {
+    if (effectiveIndexType !== 'SP500') {
       setSyntheticNav(null)
       setFundNav(null)
       return
@@ -470,12 +477,12 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
 
   const fetchAll = async () => {
     const targets: IndexType[] = (() => {
-      if (indexType === 'ORUKAN' || indexType === 'orukan_jpy') return ['ORUKAN', 'orukan_jpy']
-      if (indexType === 'sp500_jpy') return ['SP500', 'sp500_jpy']
-      return [indexType]
+      if (effectiveIndexType === 'ORUKAN' || effectiveIndexType === 'orukan_jpy') return ['ORUKAN', 'orukan_jpy']
+      if (effectiveIndexType === 'sp500_jpy') return ['SP500', 'sp500_jpy']
+      return [effectiveIndexType]
     })()
 
-    const primary = indexType
+    const primary = effectiveIndexType
     const secondaryTargets = targets.filter((target) => target !== primary)
 
     await fetchPriceSeries(primary)
@@ -493,7 +500,7 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
       void fetchAll()
     }, REFRESH_INTERVAL_MS)
     return () => clearInterval(id)
-  }, [lastRequest, indexType])
+  }, [lastRequest, effectiveIndexType])
 
   useEffect(() => {
     return () => {
@@ -517,18 +524,18 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
   const { chartSeries, totalReturnLabels, legendLabels } = useMemo(
     () =>
       buildChartState({
-        indexType,
+        indexType: effectiveIndexType,
         priceSeriesMap,
         startOption,
         customStart,
         priceDisplayMode,
       }),
-    [indexType, priceSeriesMap, startOption, customStart, priceDisplayMode],
+    [effectiveIndexType, priceSeriesMap, startOption, customStart, priceDisplayMode],
   )
 
   const forexInsight = useMemo(
-    () => buildForexInsight(indexType, responses),
-    [indexType, responses],
+    () => buildForexInsight(effectiveIndexType, responses),
+    [effectiveIndexType, responses],
   )
 
   useEffect(() => {
@@ -574,7 +581,7 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
     }
 
     run()
-  }, [indexType, priceSeries])
+  }, [effectiveIndexType, priceSeries])
 
   const viewLabelMap: Record<ScoreMaDays, string> = {
     20: '短期目線',
@@ -749,21 +756,25 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
       </Box>
 
       <Box display="flex" justifyContent="space-between" alignItems="center" gap={1} flexWrap="wrap">
-        <FormControl size="small" sx={{ minWidth: 200 }}>
-          <InputLabel id="index-select-label">対象インデックス</InputLabel>
-          <Select
-            labelId="index-select-label"
-            value={indexType}
-            label="対象インデックス"
-            onChange={(e) => setIndexType(e.target.value as IndexType)}
-          >
-            {(Object.keys(INDEX_LABELS) as IndexType[]).map((key) => (
-              <MenuItem key={key} value={key}>
-                {INDEX_LABELS[key]}
-              </MenuItem>
-            ))}
-          </Select>
-        </FormControl>
+        {PAID_FEATURES_ENABLED ? (
+          <FormControl size="small" sx={{ minWidth: 200 }}>
+            <InputLabel id="index-select-label">対象インデックス</InputLabel>
+            <Select
+              labelId="index-select-label"
+              value={effectiveIndexType}
+              label="対象インデックス"
+              onChange={(e) => setIndexType(e.target.value as IndexType)}
+            >
+              {AVAILABLE_INDEX_TYPES.map((key) => (
+                <MenuItem key={key} value={key}>
+                  {INDEX_LABELS[key]}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+        ) : (
+          <Box />
+        )}
 
         <Box display="flex" alignItems="center" gap={1}>
           <Chip label={`最終更新: ${lastUpdatedLabel}`} size="small" />
@@ -857,7 +868,7 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
           <CardContent>
             <Tooltip title={tooltipTexts.chart.title} arrow>
               <Typography variant="h6" gutterBottom component="div">
-                {PRICE_TITLE_MAP[indexType]}
+                {PRICE_TITLE_MAP[effectiveIndexType]}
               </Typography>
             </Tooltip>
             {totalReturnLabels.length > 0 && (
@@ -981,7 +992,7 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
             <DialogContent dividers>
               <PositionForm
                 onSubmit={(req) => {
-                  fetchEvaluation(indexType, req, true)
+                  fetchEvaluation(effectiveIndexType, req, true)
                   setPositionDialogOpen(false)
                 }}
                 marketValue={displayResponse?.market_value}

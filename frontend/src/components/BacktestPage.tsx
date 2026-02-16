@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   Card,
   CardContent,
@@ -19,7 +19,7 @@ import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend } f
 import dayjs from 'dayjs'
 import { runBacktest } from '../apis'
 import type { BacktestRequest, BacktestResult } from '../types/apis'
-import { INDEX_LABELS, type IndexType } from '../types/index'
+import { AVAILABLE_INDEX_TYPES, INDEX_LABELS, normalizeIndexTypeForPlan, PAID_FEATURES_ENABLED, type IndexType } from '../types/index'
 
 const DEFAULT_REQUEST: BacktestRequest = {
   start_date: '2014-01-01',
@@ -40,6 +40,13 @@ const pctFmt = (v: unknown) => {
 export function BacktestPage() {
   const [params, setParams] = useState<BacktestRequest>(DEFAULT_REQUEST)
   const [result, setResult] = useState<BacktestResult | null>(null)
+
+  useEffect(() => {
+    const normalized = normalizeIndexTypeForPlan(params.index_type)
+    if (normalized !== params.index_type) {
+      setParams((prev) => ({ ...prev, index_type: 'SP500' }))
+    }
+  }, [params.index_type])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -109,23 +116,25 @@ export function BacktestPage() {
                   onChange={(e) => handleChange('initial_cash', Number(e.target.value))}
                 />
               </Grid>
-              <Grid item xs={12} sm={6} md={3}>
-                <FormControl fullWidth size="small">
-                  <InputLabel id="index-select">対象インデックス</InputLabel>
-                  <Select
-                    labelId="index-select"
-                    value={params.index_type}
-                    label="対象インデックス"
-                    onChange={(e) => handleChange('index_type', e.target.value as IndexType)}
-                  >
-                    {(Object.keys(INDEX_LABELS) as IndexType[]).map((key) => (
-                      <MenuItem key={key} value={key}>
-                        {INDEX_LABELS[key]}
-                      </MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-              </Grid>
+              {PAID_FEATURES_ENABLED ? (
+                <Grid item xs={12} sm={6} md={3}>
+                  <FormControl fullWidth size="small">
+                    <InputLabel id="index-select">対象インデックス</InputLabel>
+                    <Select
+                      labelId="index-select"
+                      value={params.index_type}
+                      label="対象インデックス"
+                      onChange={(e) => handleChange('index_type', e.target.value as IndexType)}
+                    >
+                      {AVAILABLE_INDEX_TYPES.map((key) => (
+                        <MenuItem key={key} value={key}>
+                          {INDEX_LABELS[key]}
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                </Grid>
+              ) : null}
               <Grid item xs={12} sm={6} md={3}>
                 <TextField
                   label="売りしきい値"
