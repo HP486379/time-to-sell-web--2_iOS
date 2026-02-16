@@ -182,6 +182,17 @@ class PushTestRequest(BaseModel):
     body: str = "通知のテスト配信です"
 
 
+class PushRunRequest(BaseModel):
+    index_type: IndexType = IndexType.SP500
+
+
+class PushRunResponse(BaseModel):
+    processed: int
+    sent: int
+    skipped: int
+    results: List[dict]
+
+
 # ======================
 # Services
 # ======================
@@ -242,6 +253,7 @@ def api_health():
 
 @app.post("/api/push/register")
 def push_register(payload: PushRegisterRequest):
+    existing = _push_registrations.get(payload.install_id, {})
     _push_registrations[payload.install_id] = {
         "install_id": payload.install_id,
         "expo_push_token": payload.expo_push_token,
@@ -249,7 +261,9 @@ def push_register(payload: PushRegisterRequest):
         "threshold": payload.threshold,
         "paid": payload.paid,
         "platform": "ios",
-        "registered_at": datetime.now(timezone.utc).isoformat(),
+        "registered_at": existing.get("registered_at") or datetime.now(timezone.utc).isoformat(),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "last_notified_on": existing.get("last_notified_on"),
     }
 
     logger.info(
@@ -290,6 +304,106 @@ def push_test(payload: PushTestRequest):
     except requests.RequestException as exc:
         logger.exception("[push] test send failed token=%s", expo_token)
         raise HTTPException(status_code=502, detail={"reason": "push_send_failed", "message": str(exc)}) from exc
+
+
+@app.post("/api/push/run", response_model=PushRunResponse)
+def push_run(payload: Optional[PushRunRequest] = None):
+    now = datetime.now(timezone.utc)
+    request_payload = payload or PushRunRequest()
+    target_index = request_payload.index_type.value
+
+    if target_index != "SP500":
+        raise HTTPException(status_code=400, detail={"reason": "unsupported_index_type", "supported": ["SP500"]})
+
+    try:
+        evaluation = _evaluate(
+            PositionRequest(
+                total_quantity=1.0,
+                avg_cost=1.0,
+                index_type=IndexType.SP500,
+                score_ma=200,
+            )
+        )
+    except Exception as exc:
+        logger.exception("[push] run evaluate failed index=%s", target_index)
+        raise HTTPException(status_code=502, detail={"reason": "evaluate_failed", "message": str(exc)}) from exc
+
+    score = float((evaluation.get("scores") or {}).get("total", 0.0) or 0.0)
+    results: List[dict] = []
+
+    for install_id, reg in _push_registrations.items():
+        if reg.get("index_type") != "SP500":
+            results.append({"install_id": install_id, "sent": False, "reason": "index_not_target"})
+            logger.info("[push] skip install_id=%s reason=index_not_target index_type=%s", install_id, reg.get("index_type"))
+            continue
+
+        threshold = float(reg.get("threshold", 80.0) or 80.0)
+        if score < threshold:
+            results.append({
+                "install_id": install_id,
+                "sent": False,
+                "reason": "below_threshold",
+                "score": score,
+                "threshold": threshold,
+            })
+            logger.info("[push] skip install_id=%s reason=below_threshold score=%.2f threshold=%.2f", install_id, score, threshold)
+            continue
+
+        last_notified_on = reg.get("last_notified_on")
+        if last_notified_on:
+            try:
+                last_dt = datetime.fromisoformat(last_notified_on)
+                if last_dt.tzinfo is None:
+                    last_dt = last_dt.replace(tzinfo=timezone.utc)
+                if now - last_dt < timedelta(hours=24):
+                    results.append({
+                        "install_id": install_id,
+                        "sent": False,
+                        "reason": "cooldown_24h",
+                        "last_notified_on": last_notified_on,
+                    })
+                    logger.info("[push] skip install_id=%s reason=cooldown_24h last_notified_on=%s", install_id, last_notified_on)
+                    continue
+            except Exception:
+                logger.warning("[push] invalid last_notified_on install_id=%s value=%s", install_id, last_notified_on)
+
+        expo_token = reg.get("expo_push_token")
+        if not expo_token:
+            results.append({"install_id": install_id, "sent": False, "reason": "token_missing"})
+            logger.info("[push] skip install_id=%s reason=token_missing", install_id)
+            continue
+
+        try:
+            expo_response = _send_expo_push(
+                token=expo_token,
+                title="売り時くん 通知",
+                body=f"SP500スコアがしきい値を超えました（score={score:.1f}, threshold={threshold:.1f}）",
+                data={"type": "auto", "index_type": "SP500", "score": score, "threshold": threshold},
+            )
+            reg["last_notified_on"] = now.isoformat()
+            results.append({
+                "install_id": install_id,
+                "sent": True,
+                "reason": "sent",
+                "score": score,
+                "threshold": threshold,
+                "expo_response": expo_response,
+            })
+            logger.info("[push] sent install_id=%s score=%.2f threshold=%.2f response=%s", install_id, score, threshold, expo_response)
+            # DeviceNotRegistered が返る場合は再登録が必要。最小実装ではログで追跡し、将来的に無効化処理を追加する。
+        except requests.RequestException as exc:
+            results.append({"install_id": install_id, "sent": False, "reason": "send_failed", "message": str(exc)})
+            logger.exception("[push] send_failed install_id=%s token=%s", install_id, expo_token)
+
+    sent = sum(1 for item in results if item.get("sent"))
+    processed = len(results)
+    skipped = processed - sent
+    return {
+        "processed": processed,
+        "sent": sent,
+        "skipped": skipped,
+        "results": results,
+    }
 
 
 # ======================

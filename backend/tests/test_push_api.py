@@ -87,3 +87,69 @@ def test_push_test_install_id_not_found():
 
     assert response.status_code == 404
     assert response.json()["detail"]["reason"] == "install_id_not_found"
+
+
+def test_push_run_sends_when_threshold_met(monkeypatch):
+    main._push_registrations.clear()
+    client.post(
+        "/api/push/register",
+        json={
+            "install_id": "ios-install-run",
+            "expo_push_token": "ExponentPushToken[run]",
+            "index_type": "SP500",
+            "threshold": 70,
+            "paid": False,
+        },
+    )
+
+    monkeypatch.setattr(main, "_evaluate", lambda _payload: {"scores": {"total": 85.0}})
+
+    called = {}
+
+    def fake_send(token: str, title: str, body: str, data=None):
+        called["token"] = token
+        return {"data": {"status": "ok"}}
+
+    monkeypatch.setattr(main, "_send_expo_push", fake_send)
+
+    response = client.post("/api/push/run", json={"index_type": "SP500"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["processed"] == 1
+    assert body["sent"] == 1
+    assert called["token"] == "ExponentPushToken[run]"
+    assert main._push_registrations["ios-install-run"]["last_notified_on"] is not None
+
+
+def test_push_run_respects_24h_cooldown(monkeypatch):
+    main._push_registrations.clear()
+    client.post(
+        "/api/push/register",
+        json={
+            "install_id": "ios-install-cooldown",
+            "expo_push_token": "ExponentPushToken[cooldown]",
+            "index_type": "SP500",
+            "threshold": 70,
+            "paid": False,
+        },
+    )
+
+    monkeypatch.setattr(main, "_evaluate", lambda _payload: {"scores": {"total": 90.0}})
+
+    send_count = {"value": 0}
+
+    def fake_send(token: str, title: str, body: str, data=None):
+        send_count["value"] += 1
+        return {"data": {"status": "ok"}}
+
+    monkeypatch.setattr(main, "_send_expo_push", fake_send)
+
+    first = client.post("/api/push/run", json={"index_type": "SP500"})
+    second = client.post("/api/push/run", json={"index_type": "SP500"})
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert send_count["value"] == 1
+    second_result = second.json()["results"][0]
+    assert second_result["reason"] == "cooldown_24h"
