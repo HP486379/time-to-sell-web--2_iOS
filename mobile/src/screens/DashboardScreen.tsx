@@ -6,13 +6,13 @@ import type { ShouldStartLoadRequest, WebViewErrorEvent } from 'react-native-web
 
 const WEB_DASHBOARD_URL =
   (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env
-    ?.EXPO_PUBLIC_DASHBOARD_URL ?? 'https://time-to-sell-web-2.vercel.app/'
+    ?.EXPO_PUBLIC_DASHBOARD_URL ?? 'https://time-to-sell-web-ios.vercel.app/'
 
 const WEBVIEW_DEBUG =
   (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env
     ?.EXPO_PUBLIC_WEBVIEW_DEBUG === '1'
 
-const ALLOWED_HOSTS = new Set(['time-to-sell-web-2.vercel.app'])
+const ALLOWED_HOSTS = new Set(['time-to-sell-web-ios.vercel.app'])
 
 function debugLog(...args: unknown[]) {
   if (WEBVIEW_DEBUG) {

@@ -1,6 +1,6 @@
 # mobile (Expo TypeScript)
 
-iOS は Dashboard タブを **全画面WebView** で表示し、Web版（https://time-to-sell-web-2.vercel.app/）とUI/機能を一致させる構成です。Backtest / Push Debug タブは既存のまま残しています。
+iOS は Dashboard タブを **全画面WebView** で表示し、iOS専用frontend（https://time-to-sell-web-ios.vercel.app/）とUI/機能を一致させる構成です。Backtest / Push Debug タブは既存のまま残しています。
 
 ## セットアップ
 
@@ -23,13 +23,15 @@ EXPO_PUBLIC_WEBVIEW_DEBUG=1
 Dashboard 表示URLは以下を優先します。
 
 ```bash
-EXPO_PUBLIC_DASHBOARD_URL=https://time-to-sell-web-2.vercel.app/
+EXPO_PUBLIC_DASHBOARD_URL=https://time-to-sell-web-ios.vercel.app/
 ```
 
-未設定時は `https://time-to-sell-web-2.vercel.app/` を使用します。
+未設定時は `https://time-to-sell-web-ios.vercel.app/` を使用します。
 
 Push登録先の backend は `EXPO_PUBLIC_BACKEND_URL` を優先し、未設定時は
 `https://time-to-sell-web-ios.onrender.com` を使用します。
+
+`eas.json` の `build.*.env` で iOS 専用URL（`https://time-to-sell-web-ios.vercel.app/`）を固定しています。
 
 WebView 挙動:
 - 同一ドメイン遷移はアプリ内WebView
