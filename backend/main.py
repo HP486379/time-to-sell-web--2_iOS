@@ -193,6 +193,12 @@ class PushRunResponse(BaseModel):
     results: List[dict]
 
 
+class WidgetSummaryResponse(BaseModel):
+    score: float
+    judgment: str
+    updated_at: str
+
+
 # ======================
 # Services
 # ======================
@@ -224,6 +230,9 @@ _cached_at: dict[str, datetime] = {}
 MIN_PRICE_POINTS = 200
 
 _push_registrations: dict[str, dict] = {}
+_widget_summary_cache: dict[str, dict] = {}
+_widget_summary_cached_at: dict[str, datetime] = {}
+_widget_summary_ttl = timedelta(minutes=5)
 
 
 def _send_expo_push(token: str, title: str, body: str, data: Optional[dict] = None) -> dict:
@@ -404,6 +413,36 @@ def push_run(payload: Optional[PushRunRequest] = None):
         "skipped": skipped,
         "results": results,
     }
+
+
+@app.get("/api/widget/summary", response_model=WidgetSummaryResponse)
+def widget_summary(index_type: str = Query("sp500")):
+    normalized = str(index_type or "SP500").upper()
+    if normalized != IndexType.SP500.value:
+        raise HTTPException(status_code=400, detail={"reason": "unsupported_index_type", "supported": ["SP500"]})
+
+    now = datetime.now(timezone.utc)
+    cached_at = _widget_summary_cached_at.get(normalized)
+    if cached_at and now - cached_at < _widget_summary_ttl:
+        return _widget_summary_cache[normalized]
+
+    evaluation = _evaluate(
+        PositionRequest(
+            total_quantity=1.0,
+            avg_cost=1.0,
+            index_type=IndexType.SP500,
+            score_ma=200,
+        )
+    )
+    score = float((evaluation.get("scores") or {}).get("total", 0.0) or 0.0)
+    result = {
+        "score": round(score, 1),
+        "judgment": (evaluation.get("status") or get_label(score)),
+        "updated_at": evaluation.get("as_of") or datetime.now(timezone.utc).isoformat(),
+    }
+    _widget_summary_cache[normalized] = result
+    _widget_summary_cached_at[normalized] = now
+    return result
 
 
 # ======================
@@ -602,7 +641,7 @@ def get_sp500_jpy_history():
 # ======================
 
 def get_cached_snapshot(index_type: IndexType = IndexType.SP500):
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     key = index_type.value
 
     if key in _cached_snapshot and now - _cached_at.get(key, datetime.min) < _cache_ttl:

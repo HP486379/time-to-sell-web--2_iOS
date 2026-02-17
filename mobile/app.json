@@ -17,6 +17,7 @@
     ],
     "updates": {
       "enabled": false
-    }
+    },
+    "scheme": "time-to-sell"
   }
 }

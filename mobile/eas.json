@@ -8,18 +8,21 @@
       "distribution": "internal",
       "env": {
         "EXPO_PUBLIC_DASHBOARD_URL": "https://time-to-sell-web-ios.vercel.app/"
-      }
+      },
+      "prebuildCommand": "npx expo prebuild --platform ios --clean"
     },
     "preview": {
       "distribution": "internal",
       "env": {
         "EXPO_PUBLIC_DASHBOARD_URL": "https://time-to-sell-web-ios.vercel.app/"
-      }
+      },
+      "prebuildCommand": "npx expo prebuild --platform ios --clean"
     },
     "production": {
       "env": {
         "EXPO_PUBLIC_DASHBOARD_URL": "https://time-to-sell-web-ios.vercel.app/"
-      }
+      },
+      "prebuildCommand": "npx expo prebuild --platform ios --clean"
     }
   },
   "submit": {

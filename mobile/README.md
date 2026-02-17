@@ -93,7 +93,7 @@ uvicorn main:app --reload --port 8000
 
 ## Dashboard UI の確認手順（Web版一致）
 
-1. Dashboard タブを開き、`https://time-to-sell-web-2.vercel.app/` が全画面で表示されることを確認
+1. Dashboard タブを開き、`https://time-to-sell-web-ios.vercel.app/` が全画面で表示されることを確認
 2. 「売り時くん」見出し、対象インデックス、総合スコア、時間軸カードがWeb版と一致することを確認
 3. 「重要イベント」が表示されることを確認
 4. チャート見た目がWeb版と一致することを確認
@@ -171,6 +171,8 @@ cd mobile
 eas build --profile development --platform ios
 ```
 
+> EAS build profile では `prebuildCommand: npx expo prebuild --platform ios --clean` を実行し、`Images.xcassets` の PNG はビルド時に再生成されます。
+
 ### TestFlight向け production build
 
 ```powershell
@@ -187,3 +189,44 @@ eas build --profile production --platform ios
 
 
 > Expo Push Token は `getExpoPushTokenAsync({ projectId })` で取得しています。`projectId` が取れない場合は Push Debug 画面に理由が表示されます。
+
+
+## iOS Widget (WidgetKit) MVP
+
+このリポジトリでは Widget ソースを `mobile/ios/TimeToSellWidget/` に追加しています。
+
+- 表示対象: `SP500` 固定
+- 取得API: `GET https://time-to-sell-web-ios.onrender.com/api/widget/summary?index_type=sp500`
+- 表示項目: スコア / 判定 / 更新時刻
+- 更新間隔: 約30分（Timeline `.after(next)`）
+- タップ遷移: `time-to-sell://dashboard`
+
+### 1) prebuild（ios/ が無い場合）
+
+```bash
+cd mobile
+npx expo prebuild --platform ios
+```
+
+### 2) Xcode で Widget Extension を追加
+
+1. `mobile/ios/*.xcworkspace` を開く
+2. **File > New > Target > Widget Extension** を作成（例: `TimeToSellWidget`）
+   - Bundle Identifier は `com.timetosell.mobile.widget` を設定
+3. 生成されたファイルを、このリポの `mobile/ios/TimeToSellWidget/` の内容に差し替え
+4. Extension の `Info.plist` が `com.apple.widgetkit-extension` を持つことを確認
+
+### 3) Deep Link
+
+- アプリ側スキーム: `time-to-sell://`（`mobile/app.json` の `scheme`）
+- Widget のリンク先: `time-to-sell://dashboard`
+
+### 4) TestFlight確認
+
+1. `eas build --profile production --platform ios` で新規ビルド
+2. TestFlightで更新版をインストール
+3. ホーム画面で Widget を追加（Small/Medium）
+4. スコア/判定/更新時刻が表示されることを確認
+5. Widget タップで Dashboard タブへ遷移することを確認
+
+> WidgetKit は更新タイミングに遅延が出る場合があります（即時更新ではありません）。

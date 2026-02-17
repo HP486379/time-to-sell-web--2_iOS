@@ -12,6 +12,17 @@ import { registerPushToken } from './src/push/registerPush'
 
 const Tab = createBottomTabNavigator()
 
+const linking = {
+  prefixes: ['time-to-sell://'],
+  config: {
+    screens: {
+      Dashboard: 'dashboard',
+      Backtest: 'backtest',
+      'Push Debug': 'push-debug',
+    },
+  },
+}
+
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
     shouldShowAlert: true,
@@ -52,7 +63,7 @@ export default function App() {
 
   return (
     <SafeAreaProvider>
-      <NavigationContainer theme={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+      <NavigationContainer linking={linking} theme={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
         <Tab.Navigator>
           <Tab.Screen name="Dashboard" component={DashboardScreen} />
           <Tab.Screen name="Backtest" component={BacktestPlaceholder} />

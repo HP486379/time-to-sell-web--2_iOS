@@ -49,3 +49,26 @@ curl -X POST https://time-to-sell-web-ios.onrender.com/api/push/run \
 ```
 
 > 無料プランではスリープ復帰遅延があるため、初回レスポンスが遅い場合があります。
+
+
+## Widget API (iOS WidgetKit)
+
+### エンドポイント
+
+- `GET /api/widget/summary?index_type=sp500`
+  - `index_type` は `SP500` のみ許可（それ以外は `400`）
+  - response: `{ score, judgment, updated_at }`
+
+### 動作確認（curl）
+
+```bash
+curl "https://time-to-sell-web-ios.onrender.com/api/widget/summary?index_type=sp500"
+```
+
+### 動作確認（PowerShell）
+
+```powershell
+Invoke-WebRequest -UseBasicParsing `
+  -Uri "https://time-to-sell-web-ios.onrender.com/api/widget/summary?index_type=sp500" `
+  -Method GET
+```
