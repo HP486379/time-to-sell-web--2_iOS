@@ -1,0 +1,28 @@
+{
+  "cli": {
+    "version": ">= 12.0.0"
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "env": {
+        "EXPO_PUBLIC_DASHBOARD_URL": "https://time-to-sell-web-ios.vercel.app/"
+      }
+    },
+    "preview": {
+      "distribution": "internal",
+      "env": {
+        "EXPO_PUBLIC_DASHBOARD_URL": "https://time-to-sell-web-ios.vercel.app/"
+      }
+    },
+    "production": {
+      "env": {
+        "EXPO_PUBLIC_DASHBOARD_URL": "https://time-to-sell-web-ios.vercel.app/"
+      }
+    }
+  },
+  "submit": {
+    "production": {}
+  }
+}

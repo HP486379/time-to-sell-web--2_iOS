@@ -1,6 +1,6 @@
 import { LineChart, Line, XAxis, YAxis, Tooltip as RechartsTooltip, ResponsiveContainer, Legend, CartesianGrid } from 'recharts'
 import { Tooltip as MuiTooltip } from '@mui/material'
-import { PricePoint } from '../types/api'
+import type { PricePoint } from '../../../shared/types/evaluate'
 import type { TooltipTexts } from '../tooltipTexts'
 
 type LegendLabels = {
