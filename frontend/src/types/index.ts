@@ -1,20 +1,17 @@
-export type IndexType =
-  | 'SP500'
-  | 'sp500_jpy'
-  | 'TOPIX'
-  | 'NIKKEI'
-  | 'NIFTY50'
-  | 'ORUKAN'
-  | 'orukan_jpy'
+export { INDEX_LABELS } from '../../../shared/types'
+export type { IndexType } from '../../../shared/types'
 
-export const INDEX_LABELS: Record<IndexType, string> = {
-  SP500: 'S&P500',
-  sp500_jpy: 'S&P500（円建て）',
-  TOPIX: 'TOPIX',
-  NIKKEI: '日経225',
-  NIFTY50: 'NIFTY50（インド）',
-  ORUKAN: 'オルカン（全世界株式）',
-  orukan_jpy: 'オルカン（全世界株式・円建て）',
+import { INDEX_LABELS, type IndexType } from '../../../shared/types'
+
+const paidFlag = String(import.meta.env.VITE_PAID_FEATURES_ENABLED ?? 'false').toLowerCase()
+export const PAID_FEATURES_ENABLED = paidFlag === '1' || paidFlag === 'true' || paidFlag === 'yes'
+
+export const AVAILABLE_INDEX_TYPES: IndexType[] = PAID_FEATURES_ENABLED
+  ? (Object.keys(INDEX_LABELS) as IndexType[])
+  : ['SP500']
+
+export function normalizeIndexTypeForPlan(indexType: IndexType): IndexType {
+  return AVAILABLE_INDEX_TYPES.includes(indexType) ? indexType : 'SP500'
 }
 
 export const PRICE_TITLE_MAP: Record<IndexType, string> = {

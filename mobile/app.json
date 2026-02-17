@@ -1,0 +1,23 @@
+{
+  "expo": {
+    "name": "time-to-sell-mobile",
+    "slug": "time-to-sell-mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.timetosell.mobile"
+    },
+    "plugins": [
+      "expo-notifications"
+    ],
+    "updates": {
+      "enabled": false
+    },
+    "scheme": "timetosell"
+  }
+}
