@@ -53,40 +53,8 @@ export async function registerPushToken(expoPushToken: string): Promise<Register
   }
 
   const json = (await res.json()) as RegisterPushResult
-  console.log('[push] register 成功 install_id=', installId, 'backend=', BACKEND_URL, 'appVersion=', Application.nativeApplicationVersion)
+  console.log('[push] register 成功', 'backend=', BACKEND_URL, 'appVersion=', Application.nativeApplicationVersion)
   return json
-}
-
-type PushTestPayload = {
-  expoPushToken?: string
-  installId?: string
-}
-
-export async function requestPushTest(payload: PushTestPayload): Promise<unknown> {
-  const res = await fetch(buildBackendUrl('/api/push/test'), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      expo_push_token: payload.expoPushToken,
-      install_id: payload.installId,
-      title: '売り時くん テスト通知',
-      body: 'Push Debug画面からのテスト通知です',
-    }),
-  })
-
-  const text = await res.text()
-  try {
-    const json = JSON.parse(text) as unknown
-    if (!res.ok) {
-      throw new Error(`push test failed: ${res.status} ${JSON.stringify(json)}`)
-    }
-    return json
-  } catch {
-    if (!res.ok) {
-      throw new Error(`push test failed: ${res.status} ${text}`)
-    }
-    return text
-  }
 }
 
 export { BACKEND_URL }
