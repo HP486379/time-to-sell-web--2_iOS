@@ -12,7 +12,7 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.timetosell.mobile",
       "buildNumber": "25",
-      "icon": "./assets/icon.png"
+      "icon": "../frontend/public/assets/icon.png"
     },
     "plugins": [
       "expo-notifications"
@@ -20,6 +20,6 @@
     "updates": {
       "enabled": false
     },
-    "icon": "./assets/icon.png"
+    "icon": "../frontend/public/assets/icon.png"
   }
 }

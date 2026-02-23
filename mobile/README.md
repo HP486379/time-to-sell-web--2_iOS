@@ -26,6 +26,13 @@ EXPO_PUBLIC_WEBVIEW_DEBUG=1
 - 外部ドメイン遷移は OS ブラウザで開く
 - Pull to Refresh 有効
 - 読み込み中スピナー、失敗時は再読み込み UI を表示
+- 通知許可を拒否しても Dashboard の利用は継続可能
+- 通知登録処理は失敗してもアプリ動作を継続する
+
+## アイコン運用
+
+- 現在 `expo.icon` / `expo.ios.icon` は `../frontend/public/assets/icon.png` を参照
+- アイコン画像バイナリの差し替えはこのPRでは行わず、必要に応じてユーザー側で実施
 
 ## iOS build
 
@@ -40,3 +47,4 @@ eas build --profile production --platform ios
 - 外部 URL が Safari で開く
 - Pull to Refresh が動作する
 - オフライン時にエラー UI が表示される
+- 通知許可を拒否してもアプリが継続利用できる
