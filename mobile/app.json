@@ -9,15 +9,17 @@
       "**/*"
     ],
     "ios": {
-  "supportsTablet": true,
-  "bundleIdentifier": "com.timetosell.mobile",
-  "buildNumber": "23"
-},
+      "supportsTablet": true,
+      "bundleIdentifier": "com.timetosell.mobile",
+      "buildNumber": "25",
+      "icon": "../frontend/public/assets/icon.png"
+    },
     "plugins": [
       "expo-notifications"
     ],
     "updates": {
       "enabled": false
-    }
+    },
+    "icon": "../frontend/public/assets/icon.png"
   }
 }
