@@ -11,8 +11,11 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.timetosell.mobile",
-      "buildNumber": "25",
-      "icon": "../frontend/public/assets/icon.png"
+      "buildNumber": "30",
+      "icon": "../frontend/public/assets/icon.png",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "plugins": [
       "expo-notifications"
@@ -20,6 +23,11 @@
     "updates": {
       "enabled": false
     },
-    "icon": "../frontend/public/assets/icon.png"
+    "icon": "../frontend/public/assets/icon.png",
+    "extra": {
+      "eas": {
+        "projectId": "6565316a-da68-4256-acc2-6f1fc6d7cb22"
+      }
+    }
   }
 }

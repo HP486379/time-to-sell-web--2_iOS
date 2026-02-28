@@ -4,7 +4,7 @@ import Constants from 'expo-constants'
 
 export type PushTokenResult = {
   token: string | null
-  reason: string | null
+  reason: string |null
 }
 
 function resolveProjectId(): string | null {
@@ -14,36 +14,55 @@ function resolveProjectId(): string | null {
 }
 
 export async function getExpoPushTokenDetailed(): Promise<PushTokenResult> {
-  if (!Device.isDevice) {
-    return { token: null, reason: '実機ではないため Push Token を取得できません。' }
-  }
-
-  const projectId = resolveProjectId()
-  if (!projectId) {
-    return {
-      token: null,
-      reason:
-        'EAS projectId を取得できません。app.json/app.config と EAS Project 設定を確認してください（Constants.expoConfig.extra.eas.projectId または Constants.easConfig.projectId が必要です）。',
+  try {
+    if (!Device.isDevice) {
+      return { token: null, reason: '実機ではないため Push Token を取得できません。' }
     }
-  }
 
-  const { status: existingStatus } = await Notifications.getPermissionsAsync()
-  let finalStatus = existingStatus
-
-  if (existingStatus !== 'granted') {
-    const { status } = await Notifications.requestPermissionsAsync()
-    finalStatus = status
-  }
-
-  if (finalStatus !== 'granted') {
-    return {
-      token: null,
-      reason: `通知権限が許可されていません（status: ${finalStatus}）。iOS設定から通知を許可してください。`,
+    const projectId = resolveProjectId()
+    if (!projectId) {
+      return {
+        token: null,
+        reason:
+          'EAS projectId を取得できません。app.json/app.config と EAS Project 設定を確認してください（Constants.expoConfig.extra.eas.projectId または Constants.easConfig.projectId が必要です）。',
+      }
     }
-  }
 
-  const token = (await Notifications.getExpoPushTokenAsync({ projectId })).data
-  return { token, reason: null }
+    let finalStatus: Notifications.PermissionStatus
+
+    try {
+      const perm = await Notifications.getPermissionsAsync()
+      finalStatus = perm.status
+    } catch (e) {
+      return { token: null, reason: `通知権限の取得に失敗しました: ${String(e)}` }
+    }
+
+    if (finalStatus !== 'granted') {
+      try {
+        const req = await Notifications.requestPermissionsAsync()
+        finalStatus = req.status
+      } catch (e) {
+        return { token: null, reason: `通知権限のリクエストに失敗しました: ${String(e)}` }
+      }
+    }
+
+    if (finalStatus !== 'granted') {
+      return {
+        token: null,
+        reason: `通知権限が許可されていません（status: ${finalStatus}）。`,
+      }
+    }
+
+    try {
+      const token = (await Notifications.getExpoPushTokenAsync({ projectId })).data
+      return { token, reason: null }
+    } catch (e) {
+      return { token: null, reason: `Expo Push Token の取得に失敗しました: ${String(e)}` }
+    }
+  } catch (e) {
+    // ここまで来たら想定外。絶対に落とさない。
+    return { token: null, reason: `push初期化で想定外エラー: ${String(e)}` }
+  }
 }
 
 export async function getExpoPushToken(): Promise<string | null> {
