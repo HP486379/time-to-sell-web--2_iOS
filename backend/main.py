@@ -3,7 +3,6 @@ import uuid
 from typing import List, Optional
 import logging
 from enum import Enum
-import requests
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -160,32 +159,6 @@ class BacktestResponse(BaseModel):
     buy_hold_history: List[PortfolioPoint]
 
 
-class PushRegisterRequest(BaseModel):
-    install_id: str
-    expo_push_token: str
-    index_type: IndexType = IndexType.SP500
-    threshold: float = 80.0
-    paid: bool = False
-
-
-class PushTestRequest(BaseModel):
-    expo_push_token: Optional[str] = None
-    install_id: Optional[str] = None
-    title: str = "売り時くん テスト通知"
-    body: str = "通知のテスト配信です"
-
-
-class PushRunRequest(BaseModel):
-    index_type: IndexType = IndexType.SP500
-
-
-class PushRunResponse(BaseModel):
-    processed: int
-    sent: int
-    skipped: int
-    results: List[dict]
-
-
 # ======================
 # Services
 # ======================
@@ -215,24 +188,6 @@ _cached_snapshot = {}
 _cached_at: dict[str, datetime] = {}
 MIN_PRICE_POINTS = 200
 
-_push_registrations: dict[str, dict] = {}
-
-
-def _send_expo_push(token: str, title: str, body: str, data: Optional[dict] = None) -> dict:
-    payload = {
-        "to": token,
-        "title": title,
-        "body": body,
-        "data": data or {},
-    }
-    response = requests.post(
-        "https://exp.host/--/api/v2/push/send",
-        json=payload,
-        timeout=10,
-    )
-    response.raise_for_status()
-    return response.json()
-
 
 # ======================
 # Health Check
@@ -241,161 +196,6 @@ def _send_expo_push(token: str, title: str, body: str, data: Optional[dict] = No
 @app.get("/api/health")
 def health():
     return {"status": "ok"}
-
-
-@app.post("/api/push/register")
-def push_register(payload: PushRegisterRequest):
-    existing = _push_registrations.get(payload.install_id, {})
-    _push_registrations[payload.install_id] = {
-        "install_id": payload.install_id,
-        "expo_push_token": payload.expo_push_token,
-        "index_type": payload.index_type.value,
-        "threshold": payload.threshold,
-        "paid": payload.paid,
-        "platform": "ios",
-        "registered_at": existing.get("registered_at") or datetime.now(timezone.utc).isoformat(),
-        "updated_at": datetime.now(timezone.utc).isoformat(),
-        "last_notified_on": existing.get("last_notified_on"),
-    }
-
-    logger.info(
-        "[push] register install_id=%s index_type=%s paid=%s",
-        payload.install_id,
-        payload.index_type.value,
-        payload.paid,
-    )
-    return {"ok": True, "registration": _push_registrations[payload.install_id]}
-
-
-@app.post("/api/push/test")
-def push_test(payload: PushTestRequest):
-    expo_token = payload.expo_push_token
-
-    if not expo_token and payload.install_id:
-        registration = _push_registrations.get(payload.install_id)
-        if not registration:
-            raise HTTPException(status_code=404, detail={"reason": "install_id_not_found"})
-        expo_token = registration["expo_push_token"]
-
-    if not expo_token:
-        if not _push_registrations:
-            raise HTTPException(status_code=404, detail={"reason": "no_registered_token"})
-        expo_token = next(reversed(_push_registrations.values()))["expo_push_token"]
-
-    try:
-        expo_response = _send_expo_push(
-            token=expo_token,
-            title=payload.title,
-            body=payload.body,
-            data={"type": "test"},
-        )
-        logger.info("[push] test sent token=%s response=%s", expo_token, expo_response)
-        # 無効tokenはExpoレスポンス内で DeviceNotRegistered が返ることがあるため、
-        # 運用時は receipts を確認して登録解除フローを追加する。
-        return {"ok": True, "expo_push_token": expo_token, "expo_response": expo_response}
-    except requests.RequestException as exc:
-        logger.exception("[push] test send failed token=%s", expo_token)
-        raise HTTPException(status_code=502, detail={"reason": "push_send_failed", "message": str(exc)}) from exc
-
-
-@app.post("/api/push/run", response_model=PushRunResponse)
-def push_run(payload: Optional[PushRunRequest] = None):
-    now = datetime.now(timezone.utc)
-    request_payload = payload or PushRunRequest()
-    target_index = request_payload.index_type.value
-
-    if target_index != "SP500":
-        raise HTTPException(status_code=400, detail={"reason": "unsupported_index_type", "supported": ["SP500"]})
-
-    try:
-        evaluation = _evaluate(
-            PositionRequest(
-                total_quantity=1.0,
-                avg_cost=1.0,
-                index_type=IndexType.SP500,
-                score_ma=200,
-            )
-        )
-    except Exception as exc:
-        logger.exception("[push] run evaluate failed index=%s", target_index)
-        raise HTTPException(status_code=502, detail={"reason": "evaluate_failed", "message": str(exc)}) from exc
-
-    score = float((evaluation.get("scores") or {}).get("total", 0.0) or 0.0)
-    results: List[dict] = []
-
-    for install_id, reg in _push_registrations.items():
-        if reg.get("index_type") != "SP500":
-            results.append({"install_id": install_id, "sent": False, "reason": "index_not_target"})
-            logger.info("[push] skip install_id=%s reason=index_not_target index_type=%s", install_id, reg.get("index_type"))
-            continue
-
-        threshold = float(reg.get("threshold", 80.0) or 80.0)
-        if score < threshold:
-            results.append({
-                "install_id": install_id,
-                "sent": False,
-                "reason": "below_threshold",
-                "score": score,
-                "threshold": threshold,
-            })
-            logger.info("[push] skip install_id=%s reason=below_threshold score=%.2f threshold=%.2f", install_id, score, threshold)
-            continue
-
-        last_notified_on = reg.get("last_notified_on")
-        if last_notified_on:
-            try:
-                last_dt = datetime.fromisoformat(last_notified_on)
-                if last_dt.tzinfo is None:
-                    last_dt = last_dt.replace(tzinfo=timezone.utc)
-                if now - last_dt < timedelta(hours=24):
-                    results.append({
-                        "install_id": install_id,
-                        "sent": False,
-                        "reason": "cooldown_24h",
-                        "last_notified_on": last_notified_on,
-                    })
-                    logger.info("[push] skip install_id=%s reason=cooldown_24h last_notified_on=%s", install_id, last_notified_on)
-                    continue
-            except Exception:
-                logger.warning("[push] invalid last_notified_on install_id=%s value=%s", install_id, last_notified_on)
-
-        expo_token = reg.get("expo_push_token")
-        if not expo_token:
-            results.append({"install_id": install_id, "sent": False, "reason": "token_missing"})
-            logger.info("[push] skip install_id=%s reason=token_missing", install_id)
-            continue
-
-        try:
-            expo_response = _send_expo_push(
-                token=expo_token,
-                title="売り時くん 通知",
-                body=f"SP500スコアがしきい値を超えました（score={score:.1f}, threshold={threshold:.1f}）",
-                data={"type": "auto", "index_type": "SP500", "score": score, "threshold": threshold},
-            )
-            reg["last_notified_on"] = now.isoformat()
-            results.append({
-                "install_id": install_id,
-                "sent": True,
-                "reason": "sent",
-                "score": score,
-                "threshold": threshold,
-                "expo_response": expo_response,
-            })
-            logger.info("[push] sent install_id=%s score=%.2f threshold=%.2f response=%s", install_id, score, threshold, expo_response)
-            # DeviceNotRegistered が返る場合は再登録が必要。最小実装ではログで追跡し、将来的に無効化処理を追加する。
-        except requests.RequestException as exc:
-            results.append({"install_id": install_id, "sent": False, "reason": "send_failed", "message": str(exc)})
-            logger.exception("[push] send_failed install_id=%s token=%s", install_id, expo_token)
-
-    sent = sum(1 for item in results if item.get("sent"))
-    processed = len(results)
-    skipped = processed - sent
-    return {
-        "processed": processed,
-        "sent": sent,
-        "skipped": skipped,
-        "results": results,
-    }
 
 
 # ======================
@@ -903,18 +703,25 @@ def backtest(payload: BacktestRequest):
 from datetime import date as dt_date  # ★ date型と引数名の衝突回避のため alias
 
 @app.get("/api/events")
-def get_events_api(date_str: str = Query(None)):
+def get_events_api(date: Optional[str] = Query(None), date_str: Optional[str] = Query(None)):
     """
     デバッグ用イベント取得API
 
     - /api/events?date=2026-01-02
+    - /api/events?date_str=2026-01-02
     - /api/events   ← 今日基準
     """
     try:
-        # ★ クエリ文字列 date_str をパースして target(date) を作る
+        # 優先順位: date -> date_str -> today
+        requested_date: Optional[str] = None
+        for candidate in (date, date_str):
+            if isinstance(candidate, str) and candidate:
+                requested_date = candidate
+                break
+
         target = (
-            datetime.strptime(date_str, "%Y-%m-%d").date()
-            if date_str
+            datetime.strptime(requested_date, "%Y-%m-%d").date()
+            if requested_date
             else dt_date.today()
         )
 
@@ -927,7 +734,7 @@ def get_events_api(date_str: str = Query(None)):
             if isinstance(d, dt_date):
                 e["date"] = d.isoformat()
 
-        return {"events": events, "target": target.isoformat()}
+        return {"events": events, "target": target.isoformat(), "manual_count": len(event_service.manual_events)}
 
     except Exception as e:
         # 既存仕様に合わせて握りつぶし（現状の挙動を維持）
