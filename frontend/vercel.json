@@ -1,5 +1,5 @@
 {
   "rewrites": [
-    { "source": "/api/(.*)", "destination": "https://time-to-sell-web-ios.onrender.com/api/$1" }
+    { "source": "/api/(.*)", "destination": "https://mai-rishi-kun.onrender.com/api/$1" }
   ]
 }
