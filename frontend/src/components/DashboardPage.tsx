@@ -29,8 +29,13 @@ import {
 import axios from 'axios'
 import dayjs from 'dayjs'
 import { AnimatePresence, motion } from 'framer-motion'
-import type { EvaluateRequest, EvaluateResponse, PricePoint } from '../../../shared/types/evaluate'
-import type { FundNavResponse, SyntheticNavResponse } from '../../../shared/types'
+import {
+  EvaluateRequest,
+  EvaluateResponse,
+  FundNavResponse,
+  SyntheticNavResponse,
+  PricePoint,
+} from '../types/api'
 import ScoreSummaryCard from './ScoreSummaryCard'
 import PositionForm from './PositionForm'
 import PriceChart from './PriceChart'
@@ -67,8 +72,6 @@ const defaultRequest: EvaluateRequest = {
 
 const REFRESH_INTERVAL_MS = 5 * 60 * 1000
 
-const INDEX_TYPES: IndexType[] = ['SP500']
-
 type DisplayMode = 'pro' | 'simple'
 type StartOption = '1m' | '3m' | '6m' | '1y' | '3y' | '5y' | 'max' | 'custom'
 type PriceDisplayMode = 'normalized' | 'actual'
@@ -95,6 +98,82 @@ const chartMotion = {
   initial: { opacity: 0.6 },
   animate: { opacity: 1 },
   exit: { opacity: 0.6 },
+}
+
+const calculateFallbackTechnicalScore = (series: PricePoint[]): number | null => {
+  if (!series.length) return null
+  const latest = series[series.length - 1]
+
+  const indicators = [
+    { ma: latest.ma20, weight: 0.25 },
+    { ma: latest.ma60, weight: 0.35 },
+    { ma: latest.ma200, weight: 0.4 },
+  ].filter((item) => item.ma !== null)
+
+  if (!indicators.length) return null
+
+  const totalWeight = indicators.reduce((sum, item) => sum + item.weight, 0)
+  const weightedScore = indicators.reduce((sum, item) => {
+    const signal = latest.close >= (item.ma as number) ? 100 : 0
+    return sum + signal * item.weight
+  }, 0)
+
+  return roundToTwo(weightedScore / totalWeight)
+}
+
+const withFallbackScores = (res: EvaluateResponse, series: PricePoint[]): EvaluateResponse => {
+  const reasons = res.reasons ?? []
+  if (!reasons.includes('TECHNICAL_UNAVAILABLE')) return res
+
+  const fallbackTechnical = calculateFallbackTechnicalScore(series)
+  if (fallbackTechnical === null) return res
+
+  const fallbackTotal = roundToTwo(
+    fallbackTechnical * 0.45 +
+      (res.scores?.macro ?? 0) * 0.45 +
+      (res.scores?.event_adjustment ?? 0) * 0.1,
+  )
+
+  return {
+    ...res,
+    status: 'ready',
+    reasons,
+    scores: {
+      ...res.scores,
+      technical: fallbackTechnical,
+      total: fallbackTotal,
+    },
+  }
+}
+
+const isFiniteNumber = (value: unknown): value is number =>
+  typeof value === 'number' && Number.isFinite(value)
+
+const hasUsableScores = (res: EvaluateResponse): boolean =>
+  isFiniteNumber(res?.scores?.technical) &&
+  isFiniteNumber(res?.scores?.macro) &&
+  isFiniteNumber(res?.scores?.event_adjustment) &&
+  isFiniteNumber(res?.scores?.total)
+
+const normalizeEvaluateResponse = (res: EvaluateResponse, series: PricePoint[]): EvaluateResponse => {
+  const withFallback = withFallbackScores(res, series)
+  if (hasUsableScores(withFallback)) return withFallback
+
+  return {
+    ...withFallback,
+    status: 'degraded',
+    scores: {
+      ...withFallback.scores,
+      technical: isFiniteNumber(withFallback.scores?.technical) ? withFallback.scores.technical : 0,
+      macro: isFiniteNumber(withFallback.scores?.macro) ? withFallback.scores.macro : 0,
+      event_adjustment: isFiniteNumber(withFallback.scores?.event_adjustment)
+        ? withFallback.scores.event_adjustment
+        : 0,
+      total: isFiniteNumber(withFallback.scores?.total) ? withFallback.scores.total : 0,
+      label: withFallback.scores?.label ?? '計算中',
+    },
+    reasons: [...(withFallback.reasons ?? []), 'TECHNICAL_UNAVAILABLE'],
+  }
 }
 
 type ViewKey = 'short' | 'mid' | 'long'
@@ -231,7 +310,6 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
   const [lastRequest, setLastRequest] = useState<EvaluateRequest>(defaultRequest)
   const [viewDays, setViewDays] = useState<ScoreMaDays>(defaultRequest.score_ma as ScoreMaDays)
   const [indexType, setIndexType] = useState<IndexType>('SP500')
-  const effectiveIndexType: IndexType = indexType
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
   const [showDetails, setShowDetails] = useState(false)
   const [startOption, setStartOption] = useState<StartOption>('max')
@@ -254,33 +332,23 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
   const [eventsError, setEventsError] = useState<string | null>(null)
 
   const tooltipTexts = useMemo(
-    () => buildTooltips(effectiveIndexType, lastRequest.score_ma),
-    [effectiveIndexType, lastRequest.score_ma],
+    () => buildTooltips(indexType, lastRequest.score_ma),
+    [indexType, lastRequest.score_ma],
   )
 
-
-  useEffect(() => {
-    if (!INDEX_TYPES.includes(indexType)) {
-      setIndexType('SP500')
-    }
-    if (lastRequest.index_type !== 'SP500') {
-      setLastRequest((prev) => ({ ...prev, index_type: 'SP500' }))
-    }
-  }, [indexType, lastRequest.index_type])
-
-  const response = responses[effectiveIndexType] ?? null
-  const evalStatus = evalStatusMap[effectiveIndexType] ?? (response ? 'ready' : 'loading')
-  const evalReasons = evalReasonsMap[effectiveIndexType] ?? []
-  const evalStatusMessage = evalStatusMessageMap[effectiveIndexType]
-  const showScores = evalStatus === 'ready' || evalStatus === 'refreshing'
+  const response = responses[indexType] ?? null
+  const evalStatus = evalStatusMap[indexType] ?? (response ? 'ready' : 'loading')
+  const evalReasons = evalReasonsMap[indexType] ?? []
+  const evalStatusMessage = evalStatusMessageMap[indexType]
+  const showScores = evalStatus === 'ready' || evalStatus === 'refreshing' || evalStatus === 'degraded'
   const displayResponse = showScores ? response : null
   const totalScore = displayResponse?.scores?.total
-  const priceSeries = priceSeriesMap[effectiveIndexType] ?? []
+  const priceSeries = priceSeriesMap[indexType] ?? []
 
   const handleRetry = () => {
     setEvalStatusMap((prev) => ({
       ...prev,
-      [effectiveIndexType]: response ? 'refreshing' : 'loading',
+      [indexType]: response ? 'refreshing' : 'loading',
     }))
     setIsEvalRetrying(false)
     void fetchAll()
@@ -305,17 +373,17 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
   const resolveUiStatus = (data: EvaluateResponse): EvalStatus => {
     const apiStatus = (data.status ?? 'ready') as EvalStatus
     const reasons = data.reasons ?? []
-    const hasTechUnavailable = reasons.includes('TECHNICAL_UNAVAILABLE')
-    const priceSeriesEmpty = !data.price_series || data.price_series.length === 0
-    const techLooksBroken =
-      (data.scores?.technical === 0 && (data.scores?.macro ?? 0) >= 50) ||
-      data.technical_details?.T_base === undefined
-
     if (apiStatus === 'error') return 'error'
     if (apiStatus === 'loading') return 'loading'
-    if (hasTechUnavailable || priceSeriesEmpty || techLooksBroken) return 'degraded'
 
-    return apiStatus
+    // MA欠損だけで全体停止しない
+    if (hasUsableScores(data)) return 'ready'
+
+    // スコアが欠損している場合のみ degraded 扱い（計算中）
+    if (reasons.includes('TECHNICAL_UNAVAILABLE') || reasons.includes('PRICE_HISTORY_EMPTY')) {
+      return 'degraded'
+    }
+    return 'degraded'
   }
 
   const scheduleEvalRetry = (
@@ -357,13 +425,15 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
       const res = await apiClient.post<EvaluateResponse>('/api/evaluate', body)
       if (reqSeq !== evalReqSeqRef.current) return
       if (res.data.request_id !== latestEvalRequestIdRef.current[targetIndex]) return
-      const status = resolveUiStatus(res.data)
-      const reasons = res.data.reasons ?? []
+      const latestSeries = priceSeriesMap[targetIndex] ?? []
+      const normalized = normalizeEvaluateResponse(res.data, latestSeries)
+      const status = resolveUiStatus(normalized)
+      const reasons = normalized.reasons ?? []
       let uiMessage: string | undefined
-      if (status === 'degraded') {
-        if (reasons.includes('TECHNICAL_UNAVAILABLE')) {
-          uiMessage = 'テクニカル指標の取得が未完了のため、スコアは確定していません。'
-        } else if (!res.data.price_series || res.data.price_series.length === 0) {
+      if (reasons.includes('TECHNICAL_UNAVAILABLE')) {
+        uiMessage = 'MA200計算中（データ不足）'
+      } else if (status === 'degraded') {
+        if (!res.data.price_series || res.data.price_series.length === 0) {
           uiMessage = '価格履歴の取得が未完了のため、スコアは確定していません。'
         } else {
           uiMessage = '一部データ取得中のため、スコアは確定していません。'
@@ -376,14 +446,21 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
       }
 
       if (status === 'degraded') {
+        setResponses((prev) => ({ ...prev, [targetIndex]: normalized }))
         if (!markPrimary) return
         if (retryCount >= EVAL_RETRY_DELAYS_MS.length) {
           setIsEvalRetrying(false)
-          setEvalStatusMap((prev) => ({ ...prev, [targetIndex]: 'error' }))
-          setError('価格履歴が未確定のためスコアを表示できません。再取得してください。')
+          setEvalStatusMap((prev) => ({ ...prev, [targetIndex]: 'degraded' }))
           return
         }
         setIsEvalRetrying(true)
+        console.warn('[EVAL DEGRADED]', {
+          index: targetIndex,
+          retryCount,
+          reasons,
+          status: normalized.status,
+          scores: normalized.scores,
+        })
         scheduleEvalRetry(targetIndex, payload, markPrimary, retryCount)
         return
       }
@@ -396,14 +473,14 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
         return
       }
 
-      setResponses((prev) => ({ ...prev, [targetIndex]: res.data }))
+      setResponses((prev) => ({ ...prev, [targetIndex]: normalized }))
       if (targetIndex === indexType && payload)
         setLastRequest((prev) => ({ ...prev, ...payload, index_type: targetIndex }))
       if (markPrimary) {
         setLastUpdated(new Date())
         setIsEvalRetrying(false)
         setEvalStatusMap((prev) => ({ ...prev, [targetIndex]: 'ready' }))
-        setEvalReasonsMap((prev) => ({ ...prev, [targetIndex]: [] }))
+        setEvalReasonsMap((prev) => ({ ...prev, [targetIndex]: reasons }))
       }
     } catch (e: any) {
       if (reqSeq !== evalReqSeqRef.current) return
@@ -447,7 +524,21 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
     try {
       const res = await apiClient.get<PricePoint[]>(getPriceHistoryEndpoint(targetIndex))
       if (reqSeq !== priceReqSeqRef.current) return
-      const sorted = [...res.data].sort((a, b) => a.date.localeCompare(b.date))
+      const sorted = [...res.data]
+        .filter((p) => typeof p?.date === 'string' && typeof p?.close === 'number' && Number.isFinite(p?.close))
+        .sort((a, b) => a.date.localeCompare(b.date))
+        .map((p, idx) => {
+          const row = {
+            ...p,
+            ma20: typeof p.ma20 === 'number' && Number.isFinite(p.ma20) ? p.ma20 : null,
+            ma60: typeof p.ma60 === 'number' && Number.isFinite(p.ma60) ? p.ma60 : null,
+            ma200: typeof p.ma200 === 'number' && Number.isFinite(p.ma200) ? p.ma200 : null,
+          }
+          if (idx === 0 || idx === res.data.length - 1) {
+            console.debug('[PRICE ROW]', { index: targetIndex, row })
+          }
+          return row
+        })
       setPriceSeriesMap((prev) => ({ ...prev, [targetIndex]: sorted }))
     } catch (e: any) {
       console.error('価格履歴取得に失敗しました', e)
@@ -455,7 +546,7 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
   }
 
   const fetchNavs = async () => {
-    if (effectiveIndexType !== 'SP500') {
+    if (indexType !== 'SP500') {
       setSyntheticNav(null)
       setFundNav(null)
       return
@@ -478,12 +569,12 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
 
   const fetchAll = async () => {
     const targets: IndexType[] = (() => {
-      if (effectiveIndexType === 'ORUKAN' || effectiveIndexType === 'orukan_jpy') return ['ORUKAN', 'orukan_jpy']
-      if (effectiveIndexType === 'sp500_jpy') return ['SP500', 'sp500_jpy']
-      return [effectiveIndexType]
+      if (indexType === 'ORUKAN' || indexType === 'orukan_jpy') return ['ORUKAN', 'orukan_jpy']
+      if (indexType === 'sp500_jpy') return ['SP500', 'sp500_jpy']
+      return [indexType]
     })()
 
-    const primary = effectiveIndexType
+    const primary = indexType
     const secondaryTargets = targets.filter((target) => target !== primary)
 
     await fetchPriceSeries(primary)
@@ -501,7 +592,7 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
       void fetchAll()
     }, REFRESH_INTERVAL_MS)
     return () => clearInterval(id)
-  }, [lastRequest, effectiveIndexType])
+  }, [lastRequest, indexType])
 
   useEffect(() => {
     return () => {
@@ -525,18 +616,18 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
   const { chartSeries, totalReturnLabels, legendLabels } = useMemo(
     () =>
       buildChartState({
-        indexType: effectiveIndexType,
+        indexType,
         priceSeriesMap,
         startOption,
         customStart,
         priceDisplayMode,
       }),
-    [effectiveIndexType, priceSeriesMap, startOption, customStart, priceDisplayMode],
+    [indexType, priceSeriesMap, startOption, customStart, priceDisplayMode],
   )
 
   const forexInsight = useMemo(
-    () => buildForexInsight(effectiveIndexType, responses),
-    [effectiveIndexType, responses],
+    () => buildForexInsight(indexType, responses),
+    [indexType, responses],
   )
 
   useEffect(() => {
@@ -582,7 +673,7 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
     }
 
     run()
-  }, [effectiveIndexType, priceSeries])
+  }, [indexType, priceSeries])
 
   const viewLabelMap: Record<ScoreMaDays, string> = {
     20: '短期目線',
@@ -632,7 +723,7 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
   const degradedMessage =
     reasonMessages.length > 0
       ? `ℹ 状態：${reasonMessages.join(' / ')}`
-      : 'ℹ 状態：データが未確定のためスコアを確定できません'
+      : 'ℹ 状態：MA200計算中（データ不足）'
 
   const statusMessage =
     evalStatus === 'error'
@@ -761,11 +852,11 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
           <InputLabel id="index-select-label">対象インデックス</InputLabel>
           <Select
             labelId="index-select-label"
-            value={effectiveIndexType}
+            value={indexType}
             label="対象インデックス"
             onChange={(e) => setIndexType(e.target.value as IndexType)}
           >
-            {INDEX_TYPES.map((key) => (
+            {(Object.keys(INDEX_LABELS) as IndexType[]).map((key) => (
               <MenuItem key={key} value={key}>
                 {INDEX_LABELS[key]}
               </MenuItem>
@@ -865,7 +956,7 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
           <CardContent>
             <Tooltip title={tooltipTexts.chart.title} arrow>
               <Typography variant="h6" gutterBottom component="div">
-                {PRICE_TITLE_MAP[effectiveIndexType]}
+                {PRICE_TITLE_MAP[indexType]}
               </Typography>
             </Tooltip>
             {totalReturnLabels.length > 0 && (
@@ -989,7 +1080,7 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
             <DialogContent dividers>
               <PositionForm
                 onSubmit={(req) => {
-                  fetchEvaluation(effectiveIndexType, req, true)
+                  fetchEvaluation(indexType, req, true)
                   setPositionDialogOpen(false)
                 }}
                 marketValue={displayResponse?.market_value}
