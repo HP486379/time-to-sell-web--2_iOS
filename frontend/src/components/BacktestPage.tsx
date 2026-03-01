@@ -44,7 +44,7 @@ export function BacktestPage() {
   useEffect(() => {
     const normalized = normalizeIndexTypeForPlan(params.index_type)
     if (normalized !== params.index_type) {
-      setParams((prev) => ({ ...prev, index_type: 'SP500' }))
+      setParams((prev) => ({ ...prev, index_type: normalized }))
     }
   }, [params.index_type])
   const [loading, setLoading] = useState(false)
@@ -116,7 +116,7 @@ export function BacktestPage() {
                   onChange={(e) => handleChange('initial_cash', Number(e.target.value))}
                 />
               </Grid>
-              {PAID_FEATURES_ENABLED ? (
+              {PAID_FEATURES_ENABLED && AVAILABLE_INDEX_TYPES.length > 1 ? (
                 <Grid item xs={12} sm={6} md={3}>
                   <FormControl fullWidth size="small">
                     <InputLabel id="index-select">対象インデックス</InputLabel>
