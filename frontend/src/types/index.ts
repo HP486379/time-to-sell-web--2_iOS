@@ -2,11 +2,14 @@ export { INDEX_LABELS } from '../../../shared/types'
 export type { IndexType } from '../../../shared/types'
 
 import { INDEX_LABELS, type IndexType } from '../../../shared/types'
+import { envFlagEnabled } from '../constants/env'
 
-const paidFlag = String(import.meta.env.VITE_PAID_FEATURES_ENABLED ?? 'false').toLowerCase()
-export const PAID_FEATURES_ENABLED = paidFlag === '1' || paidFlag === 'true' || paidFlag === 'yes'
+const appVariant = import.meta.env.VITE_APP_VARIANT
+const isIosVariant = appVariant === 'ios'
 
-export const AVAILABLE_INDEX_TYPES: IndexType[] = PAID_FEATURES_ENABLED
+export const PAID_FEATURES_ENABLED = !isIosVariant && envFlagEnabled(import.meta.env.VITE_PAID_FEATURES_ENABLED)
+
+export const AVAILABLE_INDEX_TYPES: readonly IndexType[] = PAID_FEATURES_ENABLED
   ? (Object.keys(INDEX_LABELS) as IndexType[])
   : ['SP500']
 
