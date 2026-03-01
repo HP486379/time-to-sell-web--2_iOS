@@ -26,7 +26,6 @@ import {
   Skeleton,
   LinearProgress,
 } from '@mui/material'
-import axios from 'axios'
 import dayjs from 'dayjs'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
@@ -35,7 +34,7 @@ import {
   FundNavResponse,
   SyntheticNavResponse,
   PricePoint,
-} from '../types/api'
+} from '../../../shared/types'
 import ScoreSummaryCard from './ScoreSummaryCard'
 import PositionForm from './PositionForm'
 import PriceChart from './PriceChart'
@@ -47,21 +46,14 @@ import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined'
 import SimpleAlertCard from './SimpleAlertCard'
 import HoverTooltip from './HoverTooltip'
 import { type ScoreMaDays } from '../constants/maAvatarMap'
-import { INDEX_LABELS, PRICE_TITLE_MAP, type IndexType } from '../types/index'
+import { AVAILABLE_INDEX_TYPES, INDEX_LABELS, PRICE_TITLE_MAP, normalizeIndexTypeForPlan, type IndexType } from '../types/index'
 import { getScoreZoneText } from '../utils/alertState'
 import SellTimingAvatarCard from './SellTimingAvatarCard'
 import { decideSellAction } from '../domain/sellDecision'
+import { apiClient, buildUrl } from '../apiClient'
 
 // ★ 追加：イベント API 用
 import { fetchEvents, type EventItem } from '../apis'
-
-const apiBase =
-  import.meta.env.VITE_API_BASE ||
-  (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:8000')
-
-const apiClient = axios.create({
-  baseURL: apiBase,
-})
 
 const defaultRequest: EvaluateRequest = {
   total_quantity: 77384,
@@ -331,6 +323,14 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
   const [isEventsLoading, setIsEventsLoading] = useState(false)
   const [eventsError, setEventsError] = useState<string | null>(null)
 
+  useEffect(() => {
+    const normalized = normalizeIndexTypeForPlan(indexType)
+    if (normalized !== indexType) {
+      setIndexType(normalized)
+      setLastRequest((prev) => ({ ...prev, index_type: normalized }))
+    }
+  }, [indexType])
+
   const tooltipTexts = useMemo(
     () => buildTooltips(indexType, lastRequest.score_ma),
     [indexType, lastRequest.score_ma],
@@ -422,7 +422,7 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
           }))
         }
       }
-      const res = await apiClient.post<EvaluateResponse>('/api/evaluate', body)
+      const res = await apiClient.post<EvaluateResponse>(buildUrl('/api/evaluate'), body)
       if (reqSeq !== evalReqSeqRef.current) return
       if (res.data.request_id !== latestEvalRequestIdRef.current[targetIndex]) return
       const latestSeries = priceSeriesMap[targetIndex] ?? []
@@ -508,13 +508,13 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
 
   const getPriceHistoryEndpoint = (targetIndex: IndexType) => {
     const map: Record<IndexType, string> = {
-      SP500: '/api/sp500/price-history',
-      sp500_jpy: '/api/sp500-jpy/price-history',
-      TOPIX: '/api/topix/price-history',
-      NIKKEI: '/api/nikkei/price-history',
-      NIFTY50: '/api/nifty50/price-history',
-      ORUKAN: '/api/orukan/price-history',
-      orukan_jpy: '/api/orukan-jpy/price-history',
+      SP500: buildUrl('/api/sp500/price-history'),
+      sp500_jpy: buildUrl('/api/sp500-jpy/price-history'),
+      TOPIX: buildUrl('/api/topix/price-history'),
+      NIKKEI: buildUrl('/api/nikkei/price-history'),
+      NIFTY50: buildUrl('/api/nifty50/price-history'),
+      ORUKAN: buildUrl('/api/orukan/price-history'),
+      orukan_jpy: buildUrl('/api/orukan-jpy/price-history'),
     }
     return map[targetIndex]
   }
@@ -553,8 +553,8 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
     }
     try {
       const [syntheticRes, fundRes] = await Promise.all([
-        apiClient.get<SyntheticNavResponse>('/api/nav/sp500-synthetic').catch(() => null),
-        apiClient.get<FundNavResponse>('/api/nav/emaxis-slim-sp500').catch(() => null),
+        apiClient.get<SyntheticNavResponse>(buildUrl('/api/nav/sp500-synthetic')).catch(() => null),
+        apiClient.get<FundNavResponse>(buildUrl('/api/nav/emaxis-slim-sp500')).catch(() => null),
       ])
       setSyntheticNav(syntheticRes?.data ?? null)
       setFundNav(fundRes?.data ?? null)
@@ -848,21 +848,25 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
       </Box>
 
       <Box display="flex" justifyContent="space-between" alignItems="center" gap={1} flexWrap="wrap">
-        <FormControl size="small" sx={{ minWidth: 200 }}>
-          <InputLabel id="index-select-label">対象インデックス</InputLabel>
-          <Select
-            labelId="index-select-label"
-            value={indexType}
-            label="対象インデックス"
-            onChange={(e) => setIndexType(e.target.value as IndexType)}
-          >
-            {(Object.keys(INDEX_LABELS) as IndexType[]).map((key) => (
-              <MenuItem key={key} value={key}>
-                {INDEX_LABELS[key]}
-              </MenuItem>
-            ))}
-          </Select>
-        </FormControl>
+        {AVAILABLE_INDEX_TYPES.length > 1 ? (
+          <FormControl size="small" sx={{ minWidth: 200 }}>
+            <InputLabel id="index-select-label">対象インデックス</InputLabel>
+            <Select
+              labelId="index-select-label"
+              value={indexType}
+              label="対象インデックス"
+              onChange={(e) => setIndexType(normalizeIndexTypeForPlan(e.target.value as IndexType))}
+            >
+              {AVAILABLE_INDEX_TYPES.map((key) => (
+                <MenuItem key={key} value={key}>
+                  {INDEX_LABELS[key]}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+        ) : (
+          <Chip label={`対象インデックス: ${INDEX_LABELS.SP500}`} />
+        )}
 
         <Box display="flex" alignItems="center" gap={1}>
           <Chip label={`最終更新: ${lastUpdatedLabel}`} size="small" />
