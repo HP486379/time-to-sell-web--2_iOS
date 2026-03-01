@@ -26,7 +26,6 @@ import {
   Skeleton,
   LinearProgress,
 } from '@mui/material'
-import axios from 'axios'
 import dayjs from 'dayjs'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
@@ -51,17 +50,10 @@ import { AVAILABLE_INDEX_TYPES, INDEX_LABELS, PRICE_TITLE_MAP, normalizeIndexTyp
 import { getScoreZoneText } from '../utils/alertState'
 import SellTimingAvatarCard from './SellTimingAvatarCard'
 import { decideSellAction } from '../domain/sellDecision'
+import { apiClient, buildUrl } from '../apiClient'
 
 // ★ 追加：イベント API 用
 import { fetchEvents, type EventItem } from '../apis'
-
-const apiBase =
-  import.meta.env.VITE_API_BASE ||
-  (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:8000')
-
-const apiClient = axios.create({
-  baseURL: apiBase,
-})
 
 const defaultRequest: EvaluateRequest = {
   total_quantity: 77384,
@@ -430,7 +422,7 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
           }))
         }
       }
-      const res = await apiClient.post<EvaluateResponse>('/api/evaluate', body)
+      const res = await apiClient.post<EvaluateResponse>(buildUrl('/api/evaluate'), body)
       if (reqSeq !== evalReqSeqRef.current) return
       if (res.data.request_id !== latestEvalRequestIdRef.current[targetIndex]) return
       const latestSeries = priceSeriesMap[targetIndex] ?? []
@@ -516,13 +508,13 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
 
   const getPriceHistoryEndpoint = (targetIndex: IndexType) => {
     const map: Record<IndexType, string> = {
-      SP500: '/api/sp500/price-history',
-      sp500_jpy: '/api/sp500-jpy/price-history',
-      TOPIX: '/api/topix/price-history',
-      NIKKEI: '/api/nikkei/price-history',
-      NIFTY50: '/api/nifty50/price-history',
-      ORUKAN: '/api/orukan/price-history',
-      orukan_jpy: '/api/orukan-jpy/price-history',
+      SP500: buildUrl('/api/sp500/price-history'),
+      sp500_jpy: buildUrl('/api/sp500-jpy/price-history'),
+      TOPIX: buildUrl('/api/topix/price-history'),
+      NIKKEI: buildUrl('/api/nikkei/price-history'),
+      NIFTY50: buildUrl('/api/nifty50/price-history'),
+      ORUKAN: buildUrl('/api/orukan/price-history'),
+      orukan_jpy: buildUrl('/api/orukan-jpy/price-history'),
     }
     return map[targetIndex]
   }
@@ -561,8 +553,8 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
     }
     try {
       const [syntheticRes, fundRes] = await Promise.all([
-        apiClient.get<SyntheticNavResponse>('/api/nav/sp500-synthetic').catch(() => null),
-        apiClient.get<FundNavResponse>('/api/nav/emaxis-slim-sp500').catch(() => null),
+        apiClient.get<SyntheticNavResponse>(buildUrl('/api/nav/sp500-synthetic')).catch(() => null),
+        apiClient.get<FundNavResponse>(buildUrl('/api/nav/emaxis-slim-sp500')).catch(() => null),
       ])
       setSyntheticNav(syntheticRes?.data ?? null)
       setFundNav(fundRes?.data ?? null)
