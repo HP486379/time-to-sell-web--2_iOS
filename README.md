@@ -79,8 +79,9 @@
    npm install
    ```
 2. API ベース URL を指定（任意）
-   - バックエンドが別ホストの場合は `.env` に `VITE_API_BASE=<http://backend-host:8000>` を設定します。
-   - ローカル開発でバックエンドを 8000 番ポートで動かす場合、未設定でも Vite の `/api` プロキシ経由でアクセスできます。
+   - 推奨: `.env` に `VITE_API_BASE_URL=<https://backend-host>` を設定します。
+   - 後方互換で `VITE_API_BASE` も利用可能です。
+   - どちらも未設定の場合はフロントの既定値（Render URL）を使用します。
 3. 開発サーバーを起動
    ```bash
    npm run dev
@@ -90,6 +91,18 @@
 
 ### フロントエンドの UI メモ
 - 重要なお知らせは、ヘッダー右側のアニメーションするシグナルライトで示しています。点滅している場合は通知エリアを開いて最新の案内を確認してください。
+
+### iOS WebView entitlement 連携メモ（手動テスト用）
+- iOS 側は起動時に以下のキーを注入します。
+  - `window.__TIMETOSELL_ENTITLEMENT__.nikkei_unlock = true|false`
+  - `localStorage['timetosell_entitlement_nikkei_unlock'] = 'true'|'false'`
+- Web 側は上記フラグを参照して、TOPIX / 日経225 の選択可否を切り替えます。
+- ブラウザでの簡易確認例:
+  ```js
+  localStorage.setItem('timetosell_entitlement_nikkei_unlock', 'false') // ロック表示
+  localStorage.setItem('timetosell_entitlement_nikkei_unlock', 'true')  // 解除表示
+  location.reload()
+  ```
 
 ## リポジトリ構成
 - `backend/`: FastAPI アプリとスコアロジック

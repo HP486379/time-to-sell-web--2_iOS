@@ -19,6 +19,7 @@ from services.macro_data_service import MacroDataService
 from services.event_service import EventService
 from services.nav_service import FundNavService
 from services.backtest_service import BacktestService
+from entitlements import get_current_entitlements
 
 
 # ======================
@@ -57,7 +58,7 @@ class IndexType(str, Enum):
 class PositionRequest(BaseModel):
     total_quantity: float
     avg_cost: float
-    index_type: IndexType = IndexType.SP500
+    index_type: str = IndexType.SP500.value
     score_ma: int = Field(200)
     request_id: Optional[str] = None
 
@@ -66,10 +67,13 @@ class PositionRequest(BaseModel):
         if isinstance(value, str):
             normalized = value.lower()
             if normalized == "sp500_jpy":
-                return IndexType.SP500_JPY
+                return IndexType.SP500_JPY.value
             if normalized == "orukan_jpy":
-                return IndexType.ORUKAN_JPY
-        return value
+                return IndexType.ORUKAN_JPY.value
+            return value.upper() if normalized != "sp500_jpy" and normalized != "orukan_jpy" else value
+        if isinstance(value, IndexType):
+            return value.value
+        return str(value)
 
 
 class PricePoint(BaseModel):
@@ -187,6 +191,7 @@ _cache_ttl = timedelta(seconds=60)
 _cached_snapshot = {}
 _cached_at: dict[str, datetime] = {}
 MIN_PRICE_POINTS = 200
+ALL_INDICES = [index.value for index in IndexType]
 
 
 # ======================
@@ -196,6 +201,18 @@ MIN_PRICE_POINTS = 200
 @app.get("/api/health")
 def health():
     return {"status": "ok"}
+
+
+@app.get("/api/entitlements")
+def get_entitlements_api():
+    return get_current_entitlements()
+
+
+@app.get("/api/indices")
+def get_indices_api():
+    entitlements = get_current_entitlements()
+    allowed = set(entitlements.get("available_index_types", []))
+    return [index for index in ALL_INDICES if index in allowed]
 
 
 # ======================
@@ -409,32 +426,61 @@ def get_cached_snapshot(index_type: IndexType = IndexType.SP500):
 # Evaluate Endpoints
 # ======================
 
-def _evaluate(position: PositionRequest):
+def _resolve_supported_index_type(index_type: str) -> IndexType:
+    try:
+        return IndexType(index_type)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Unsupported index_type") from exc
+
+
+def _evaluate_with_entitlement(
+    position: PositionRequest,
+    *,
+    forced_index_type: Optional[IndexType] = None,
+):
+    requested_index_raw = forced_index_type.value if forced_index_type else position.index_type
+
+    entitlements = get_current_entitlements()
+    allowed_indices = set(entitlements.get("available_index_types", []))
+    if requested_index_raw not in allowed_indices:
+        logger.warning("Forbidden index_type requested: %s", requested_index_raw)
+        raise HTTPException(status_code=403, detail="Index not allowed")
+
+    try:
+        requested_index_type = _resolve_supported_index_type(requested_index_raw)
+    except HTTPException:
+        logger.warning("Unsupported index_type requested: %s", requested_index_raw or "unknown")
+        raise
+
+    return _evaluate(position, requested_index_type)
+
+
+def _evaluate(position: PositionRequest, requested_index_type: IndexType):
     request_id = position.request_id or str(uuid.uuid4())
     logger.info(
         "[evaluate] start request_id=%s index=%s score_ma=%s",
         request_id,
-        position.index_type.value,
+        requested_index_type.value,
         position.score_ma,
     )
     try:
-        snapshot = get_cached_snapshot(position.index_type)
+        snapshot = get_cached_snapshot(requested_index_type)
     except PriceHistoryFetchError as exc:
         logger.error(
             "[evaluate] price history unavailable request_id=%s index=%s error=%s",
             request_id,
-            position.index_type.value,
+            requested_index_type.value,
             exc,
         )
         raise HTTPException(
             status_code=503,
-            detail={"reason": f"price history unavailable for {position.index_type.value}"},
+            detail={"reason": f"price history unavailable for {requested_index_type.value}"},
         ) from exc
     except Exception as exc:
         logger.exception(
             "[evaluate] snapshot failed request_id=%s index=%s error=%s",
             request_id,
-            position.index_type.value,
+            requested_index_type.value,
             exc,
         )
         raise HTTPException(
@@ -443,10 +489,10 @@ def _evaluate(position: PositionRequest):
         ) from exc
     current_price = snapshot.get("current_price", 0.0)
     if not snapshot.get("price_history"):
-        logger.error("[evaluate] empty price history request_id=%s index=%s", request_id, position.index_type.value)
+        logger.error("[evaluate] empty price history request_id=%s index=%s", request_id, requested_index_type.value)
         raise HTTPException(
             status_code=503,
-            detail={"reason": f"price history unavailable for {position.index_type.value}"},
+            detail={"reason": f"price history unavailable for {requested_index_type.value}"},
         )
 
     reasons: list[str] = []
@@ -504,7 +550,7 @@ def _evaluate(position: PositionRequest):
             logger.exception(
                 "[evaluate] technical calc failed request_id=%s index=%s window=%s",
                 request_id,
-                position.index_type.value,
+                requested_index_type.value,
                 window,
             )
             technical_scores[key] = 0.0
@@ -583,7 +629,7 @@ def _evaluate(position: PositionRequest):
     logger.info(
         "[evaluate] price history ready request_id=%s index=%s points=%d",
         request_id,
-        position.index_type.value,
+        requested_index_type.value,
         len(price_history),
     )
 
@@ -601,18 +647,18 @@ def _evaluate(position: PositionRequest):
         logger.warning(
             "[evaluate] degraded request_id=%s index=%s reasons=%s",
             request_id,
-            position.index_type.value,
+            requested_index_type.value,
             reasons,
         )
 
     used_index_type = (
-        "SP500_JPY" if position.index_type == IndexType.SP500_JPY else
-        "ORUKAN_JPY" if position.index_type == IndexType.ORUKAN_JPY else
-        position.index_type.value
+        "SP500_JPY" if requested_index_type == IndexType.SP500_JPY else
+        "ORUKAN_JPY" if requested_index_type == IndexType.ORUKAN_JPY else
+        requested_index_type.value
     )
-    price_type = market_service._resolve_price_type(position.index_type.value)
-    symbol = market_service._resolve_symbol(position.index_type.value)
-    fx_symbol = market_service._resolve_fx_symbol(position.index_type.value)
+    price_type = market_service._resolve_price_type(requested_index_type.value)
+    symbol = market_service._resolve_symbol(requested_index_type.value)
+    fx_symbol = market_service._resolve_fx_symbol(requested_index_type.value)
     series_symbol = f"{symbol}*{fx_symbol}" if fx_symbol else symbol
     currency = "JPY" if price_type == "index_jpy" else "USD"
     unit = "index_jpy" if price_type == "index_jpy" else "index"
@@ -652,7 +698,7 @@ def _evaluate(position: PositionRequest):
         logger.exception(
             "[evaluate] response build failed request_id=%s index=%s error=%s",
             request_id,
-            position.index_type.value,
+            requested_index_type.value,
             exc,
         )
         raise HTTPException(
@@ -663,12 +709,12 @@ def _evaluate(position: PositionRequest):
 
 @app.post("/api/sp500/evaluate", response_model=EvaluateResponse)
 def evaluate_sp500(position: PositionRequest):
-    return _evaluate(position)
+    return _evaluate_with_entitlement(position, forced_index_type=IndexType.SP500)
 
 
 @app.post("/api/evaluate", response_model=EvaluateResponse)
 def evaluate(position: PositionRequest):
-    return _evaluate(position)
+    return _evaluate_with_entitlement(position)
 
 
 # ======================

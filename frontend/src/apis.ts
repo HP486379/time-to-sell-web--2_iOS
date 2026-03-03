@@ -1,20 +1,12 @@
 import type { BacktestRequest, BacktestResult } from './types/apis'
-
-/**
- * バックエンドのベースURL
- * - 通常: VITE_API_BASE（Render本番など）
- * - 未設定時: window.location.origin（ローカル動作用）
- */
-const apiBase =
-  import.meta.env.VITE_API_BASE ||
-  (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:8000')
+import { buildUrl } from './apiClient'
 
 /**
  * バックテスト実行 API
  * POST /api/backtest
  */
 export async function runBacktest(payload: BacktestRequest): Promise<BacktestResult> {
-  const res = await fetch(`${apiBase}/api/backtest`, {
+  const res = await fetch(buildUrl('/api/backtest'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -51,7 +43,7 @@ export interface EventItem {
  *  - fetchEvents()  // 日付未指定の場合はバックエンド側で「今日」扱い
  */
 export async function fetchEvents(dateIso?: string): Promise<EventItem[]> {
-  const url = new URL(`${apiBase}/api/events`)
+  const url = new URL(buildUrl('/api/events'))
 
   if (dateIso) {
     // 念のため両方付ける（backend がどちらを採用しても動く）
