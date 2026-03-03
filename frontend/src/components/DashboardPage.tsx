@@ -344,14 +344,6 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
     }
   }, [indexType, nikkeiUnlocked])
 
-  useEffect(() => {
-    const normalized = normalizeIndexTypeForPlan(indexType)
-    if (normalized !== indexType) {
-      setIndexType(normalized)
-      setLastRequest((prev) => ({ ...prev, index_type: normalized }))
-    }
-  }, [indexType])
-
   const tooltipTexts = useMemo(
     () => buildTooltips(indexType, lastRequest.score_ma),
     [indexType, lastRequest.score_ma],

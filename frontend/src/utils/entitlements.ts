@@ -3,7 +3,7 @@ import type { IndexType } from '../types/index'
 const NIKKEI_UNLOCK_ENTITLEMENT_KEY = 'nikkei_unlock'
 const NIKKEI_UNLOCK_LOCAL_STORAGE_KEY = 'timetosell_entitlement_nikkei_unlock'
 
-const LOCKED_INDEX_TYPES: readonly IndexType[] = ['TOPIX', 'NIKKEI']
+export const FREE_INDEX_TYPES: readonly IndexType[] = ['SP500']
 
 type EntitlementWindow = Window & {
   __TIMETOSELL_ENTITLEMENT__?: Record<string, boolean | undefined>
@@ -27,9 +27,9 @@ export function isNikkeiUnlocked(): boolean {
 }
 
 export function isIndexLocked(indexType: IndexType, nikkeiUnlocked: boolean): boolean {
-  if (!LOCKED_INDEX_TYPES.includes(indexType)) return false
-  return !nikkeiUnlocked
+  const isFreeIndex = FREE_INDEX_TYPES.includes(indexType)
+  return !isFreeIndex && !nikkeiUnlocked
 }
 
 export const PURCHASE_NOTICE_MESSAGE =
-  'TOPIX/日経225の利用にはアプリ内課金が必要です。購入後はアプリを再起動/再読み込みしてください。'
+  'SP500以外の指数の利用にはアプリ内課金が必要です。購入後はアプリを再起動/再読み込みしてください。'

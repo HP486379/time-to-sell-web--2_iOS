@@ -104,6 +104,10 @@
   location.reload()
   ```
 
+### X-User-Id ヘッダー（API必須）
+- フロントは全 API リクエストに `X-User-Id` を自動付与します。
+- 値は `localStorage['timetosell_user_id']` に保存し、未存在時は `crypto.randomUUID()`（非対応環境はフォールバック）で生成します。
+
 ## リポジトリ構成
 - `backend/`: FastAPI アプリとスコアロジック
 - `frontend/`: React + Vite の SPA

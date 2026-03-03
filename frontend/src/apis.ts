@@ -1,12 +1,12 @@
 import type { BacktestRequest, BacktestResult } from './types/apis'
-import { buildUrl } from './apiClient'
+import { apiFetch, buildUrl } from './apiClient'
 
 /**
  * バックテスト実行 API
  * POST /api/backtest
  */
 export async function runBacktest(payload: BacktestRequest): Promise<BacktestResult> {
-  const res = await fetch(buildUrl('/api/backtest'), {
+  const res = await apiFetch(buildUrl('/api/backtest'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -51,7 +51,7 @@ export async function fetchEvents(dateIso?: string): Promise<EventItem[]> {
     url.searchParams.set('date_str', dateIso)
   }
 
-  const res = await fetch(url.toString(), {
+  const res = await apiFetch(url.toString(), {
     method: 'GET',
   })
 
