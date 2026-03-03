@@ -62,8 +62,8 @@ def test_entitlements_endpoint_returns_free_plan():
         "plan": "free",
         "plan_source": "internal",
         "plan_expires_at": None,
-        "available_index_types": ["SP500"],
-        "features": {"multi_index": False},
+        "available_index_types": ["SP500", "sp500_jpy", "TOPIX", "NIKKEI", "NIFTY50", "ORUKAN", "orukan_jpy"],
+        "features": {"multi_index": True},
     }
 
 
@@ -71,7 +71,7 @@ def test_indices_endpoint_is_filtered_by_entitlements():
     response = client.get("/api/indices")
 
     assert response.status_code == 200
-    assert response.json() == ["SP500"]
+    assert response.json() == ["SP500", "sp500_jpy", "TOPIX", "NIKKEI", "NIFTY50", "ORUKAN", "orukan_jpy"]
 
 
 def test_evaluate_allows_sp500(monkeypatch):
@@ -84,6 +84,18 @@ def test_evaluate_allows_sp500(monkeypatch):
 
     assert response.status_code == 200
     assert response.json()["used_index_type"] == "SP500"
+
+
+def test_evaluate_allows_topix(monkeypatch):
+    monkeypatch.setattr(main, "_evaluate", lambda _position, _requested_index_type: _mock_evaluate_response("TOPIX"))
+
+    response = client.post(
+        "/api/evaluate",
+        json={"total_quantity": 1, "avg_cost": 100, "index_type": "TOPIX", "score_ma": 200},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["used_index_type"] == "TOPIX"
 
 
 def test_evaluate_forbidden_for_non_entitled_index(monkeypatch):

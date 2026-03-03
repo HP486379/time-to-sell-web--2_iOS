@@ -51,6 +51,7 @@ import { getScoreZoneText } from '../utils/alertState'
 import SellTimingAvatarCard from './SellTimingAvatarCard'
 import { decideSellAction } from '../domain/sellDecision'
 import { apiClient, buildUrl } from '../apiClient'
+import { PURCHASE_NOTICE_MESSAGE, isIndexLocked, isNikkeiUnlocked } from '../utils/entitlements'
 
 // ★ 追加：イベント API 用
 import { fetchEvents, type EventItem } from '../apis'
@@ -322,6 +323,26 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
   const [events, setEvents] = useState<EventItem[]>([])
   const [isEventsLoading, setIsEventsLoading] = useState(false)
   const [eventsError, setEventsError] = useState<string | null>(null)
+  const [nikkeiUnlocked, setNikkeiUnlocked] = useState(false)
+
+  useEffect(() => {
+    setNikkeiUnlocked(isNikkeiUnlocked())
+  }, [])
+
+  useEffect(() => {
+    const onStorage = () => setNikkeiUnlocked(isNikkeiUnlocked())
+    window.addEventListener('storage', onStorage)
+    return () => window.removeEventListener('storage', onStorage)
+  }, [])
+
+  useEffect(() => {
+    const normalized = normalizeIndexTypeForPlan(indexType)
+    const fallback = isIndexLocked(normalized, nikkeiUnlocked) ? 'SP500' : normalized
+    if (fallback !== indexType) {
+      setIndexType(fallback)
+      setLastRequest((prev) => ({ ...prev, index_type: fallback }))
+    }
+  }, [indexType, nikkeiUnlocked])
 
   useEffect(() => {
     const normalized = normalizeIndexTypeForPlan(indexType)
@@ -847,26 +868,32 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
         </Typography>
       </Box>
 
+      {!nikkeiUnlocked && (
+        <Alert severity="info">{PURCHASE_NOTICE_MESSAGE}</Alert>
+      )}
+
       <Box display="flex" justifyContent="space-between" alignItems="center" gap={1} flexWrap="wrap">
-        {AVAILABLE_INDEX_TYPES.length > 1 ? (
-          <FormControl size="small" sx={{ minWidth: 200 }}>
-            <InputLabel id="index-select-label">対象インデックス</InputLabel>
-            <Select
-              labelId="index-select-label"
-              value={indexType}
-              label="対象インデックス"
-              onChange={(e) => setIndexType(normalizeIndexTypeForPlan(e.target.value as IndexType))}
-            >
-              {AVAILABLE_INDEX_TYPES.map((key) => (
-                <MenuItem key={key} value={key}>
-                  {INDEX_LABELS[key]}
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-        ) : (
-          <Chip label={`対象インデックス: ${INDEX_LABELS.SP500}`} />
-        )}
+        <FormControl size="small" sx={{ minWidth: 240 }}>
+          <InputLabel id="index-select-label">対象インデックス</InputLabel>
+          <Select
+            labelId="index-select-label"
+            value={indexType}
+            label="対象インデックス"
+            onChange={(e) => {
+              const normalized = normalizeIndexTypeForPlan(e.target.value as IndexType)
+              if (isIndexLocked(normalized, nikkeiUnlocked)) {
+                return
+              }
+              setIndexType(normalized)
+            }}
+          >
+            {AVAILABLE_INDEX_TYPES.map((key) => (
+              <MenuItem key={key} value={key} disabled={isIndexLocked(key, nikkeiUnlocked)}>
+                {isIndexLocked(key, nikkeiUnlocked) ? `${INDEX_LABELS[key]}（購入が必要）` : INDEX_LABELS[key]}
+              </MenuItem>
+            ))}
+          </Select>
+        </FormControl>
 
         <Box display="flex" alignItems="center" gap={1}>
           <Chip label={`最終更新: ${lastUpdatedLabel}`} size="small" />
