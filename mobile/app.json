@@ -1,4 +1,3 @@
 {
-  "orientation": "all",
-  // ... other keys and values extracted or rearranged from the original app.json file
+  "orientation": "all"
 }
