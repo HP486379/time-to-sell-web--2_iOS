@@ -19,8 +19,7 @@ import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend } f
 import dayjs from 'dayjs'
 import { runBacktest } from '../apis'
 import type { BacktestRequest, BacktestResult } from '../types/apis'
-import { AVAILABLE_INDEX_TYPES, INDEX_LABELS, normalizeIndexTypeForPlan, type IndexType } from '../types/index'
-import { PURCHASE_NOTICE_MESSAGE, isIndexLocked, isNikkeiUnlocked } from '../utils/entitlements'
+import { AVAILABLE_INDEX_TYPES, INDEX_LABELS, normalizeIndexTypeForPlan, PAID_FEATURES_ENABLED, type IndexType } from '../types/index'
 
 const DEFAULT_REQUEST: BacktestRequest = {
   start_date: '2014-01-01',
@@ -41,35 +40,13 @@ const pctFmt = (v: unknown) => {
 export function BacktestPage() {
   const [params, setParams] = useState<BacktestRequest>(DEFAULT_REQUEST)
   const [result, setResult] = useState<BacktestResult | null>(null)
-  const [nikkeiUnlocked, setNikkeiUnlocked] = useState(false)
-
-  useEffect(() => {
-    setNikkeiUnlocked(isNikkeiUnlocked())
-  }, [])
 
   useEffect(() => {
     const normalized = normalizeIndexTypeForPlan(params.index_type)
-    const locked = isIndexLocked(normalized, nikkeiUnlocked)
-    const fallback = locked ? 'SP500' : normalized
-    if (fallback !== params.index_type) {
-      setParams((prev) => ({ ...prev, index_type: fallback }))
-    }
-  }, [params.index_type, nikkeiUnlocked])
-
-  useEffect(() => {
-    const onStorage = () => setNikkeiUnlocked(isNikkeiUnlocked())
-    window.addEventListener('storage', onStorage)
-    return () => window.removeEventListener('storage', onStorage)
-  }, [])
-
-  const handleIndexChange = (value: IndexType) => {
-    const normalized = normalizeIndexTypeForPlan(value)
-    if (isIndexLocked(normalized, nikkeiUnlocked)) {
+    if (normalized !== params.index_type) {
       setParams((prev) => ({ ...prev, index_type: 'SP500' }))
-      return
     }
-    setParams((prev) => ({ ...prev, index_type: normalized }))
-  }
+  }, [params.index_type])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -109,11 +86,6 @@ export function BacktestPage() {
                 {error}
               </Alert>
             )}
-            {!nikkeiUnlocked && (
-              <Alert severity="info" sx={{ mb: 2 }}>
-                {PURCHASE_NOTICE_MESSAGE}
-              </Alert>
-            )}
             <Grid container spacing={2}>
               <Grid item xs={12} sm={6} md={3}>
                 <TextField
@@ -144,7 +116,7 @@ export function BacktestPage() {
                   onChange={(e) => handleChange('initial_cash', Number(e.target.value))}
                 />
               </Grid>
-              {AVAILABLE_INDEX_TYPES.length > 1 ? (
+              {PAID_FEATURES_ENABLED ? (
                 <Grid item xs={12} sm={6} md={3}>
                   <FormControl fullWidth size="small">
                     <InputLabel id="index-select">対象インデックス</InputLabel>
@@ -152,11 +124,11 @@ export function BacktestPage() {
                       labelId="index-select"
                       value={params.index_type}
                       label="対象インデックス"
-                      onChange={(e) => handleIndexChange(e.target.value as IndexType)}
+                      onChange={(e) => handleChange('index_type', e.target.value as IndexType)}
                     >
                       {AVAILABLE_INDEX_TYPES.map((key) => (
-                        <MenuItem key={key} value={key} disabled={isIndexLocked(key, nikkeiUnlocked)}>
-                          {isIndexLocked(key, nikkeiUnlocked) ? `${INDEX_LABELS[key]}（購入が必要）` : INDEX_LABELS[key]}
+                        <MenuItem key={key} value={key}>
+                          {INDEX_LABELS[key]}
                         </MenuItem>
                       ))}
                     </Select>
