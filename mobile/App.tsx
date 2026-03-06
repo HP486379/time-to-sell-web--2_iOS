@@ -27,7 +27,7 @@ export default function App() {
         }),
       })
     } catch (e) {
-      console.log('[push] setNotificationHandler failed', e)
+      console.error('[push] setNotificationHandler failed', e)
     }
 
     // ② 画面が安定してからPush初期化（審査端末でのタイミング事故を避ける）
@@ -39,9 +39,10 @@ export default function App() {
             console.log('[push] token 取得できず（権限拒否または実機以外）')
             return
           }
-          await registerPushToken(token)
+          const registerResult = await registerPushToken(token)
+          console.log('[push] register result', { token, registerResult })
         } catch (err) {
-          console.log('[push] 初期化エラー', err)
+          console.error('[push] 初期化エラー', err)
         }
       })()
     }, 1500)
