@@ -32,9 +32,7 @@ const PURCHASE_EVENT_NAME = 'timetosell:purchase-result'
 const RESTORE_EVENT_NAME = 'timetosell:restore-result'
 
 function debugLog(...args: unknown[]) {
-  if (WEBVIEW_DEBUG) {
-    console.log('[dashboard-webview]', ...args)
-  }
+  if (WEBVIEW_DEBUG) console.log('[dashboard-webview]', ...args)
 }
 
 function isAllowedInWebView(url: string): boolean {
@@ -53,6 +51,9 @@ export function DashboardScreen() {
   const [hasError, setHasError] = useState(false)
   const [errorMessage, setErrorMessage] = useState('通信環境を確認して再読み込みしてください。')
   const [customerInfo, setCustomerInfo] = useState<CustomerInfo | null>(null)
+
+  const [isUnlocked, setIsUnlocked] = useState<boolean>(false)
+  const [purchaseChecked, setPurchaseChecked] = useState<boolean>(false)
 
   const uri = useMemo(() => WEB_DASHBOARD_URL, [])
 
@@ -169,11 +170,20 @@ export function DashboardScreen() {
     }
 
     debugLog('open-external', request.url)
-    Linking.openURL(request.url).catch((err) => {
-      debugLog('external-open-failed', { url: request.url, err })
-    })
+    Linking.openURL(request.url).catch((err) => debugLog('external-open-failed', { url: request.url, err }))
     return false
   }, [])
+
+  if (!purchaseChecked) {
+    return (
+      <SafeAreaView style={styles.container} edges={['top']}>
+        <View style={[styles.loadingOverlay, { position: 'relative' }]}>
+          <ActivityIndicator size="large" color="#4F46E5" />
+          <Text style={styles.loadingText}>課金状態を確認中...</Text>
+        </View>
+      </SafeAreaView>
+    )
+  }
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
@@ -189,6 +199,7 @@ export function DashboardScreen() {
         pullToRefreshEnabled
         startInLoadingState
         allowsBackForwardNavigationGestures={Platform.OS === 'ios'}
+        injectedJavaScriptBeforeContentLoaded={injectedBeforeLoad}
         onLoadStart={({ nativeEvent }) => {
           debugLog('load-start', nativeEvent.url)
           setHasError(false)
@@ -228,14 +239,8 @@ export function DashboardScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#FFFFFF',
-  },
-  webview: {
-    flex: 1,
-    backgroundColor: '#FFFFFF',
-  },
+  container: { flex: 1, backgroundColor: '#FFFFFF' },
+  webview: { flex: 1, backgroundColor: '#FFFFFF' },
   loadingOverlay: {
     ...StyleSheet.absoluteFillObject,
     alignItems: 'center',
@@ -243,10 +248,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.20)',
     gap: 8,
   },
-  loadingText: {
-    color: '#4B5563',
-    fontSize: 13,
-  },
+  loadingText: { color: '#4B5563', fontSize: 13 },
   errorOverlay: {
     ...StyleSheet.absoluteFillObject,
     alignItems: 'center',
@@ -255,27 +257,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     gap: 10,
   },
-  errorTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#111827',
-    textAlign: 'center',
-  },
-  errorBody: {
-    fontSize: 14,
-    color: '#6B7280',
-    textAlign: 'center',
-  },
-  retryButton: {
-    marginTop: 8,
-    backgroundColor: '#4F46E5',
-    borderRadius: 10,
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-  },
-  retryText: {
-    color: '#FFFFFF',
-    fontWeight: '700',
-    fontSize: 14,
-  },
+  errorTitle: { fontSize: 18, fontWeight: '700', color: '#111827', textAlign: 'center' },
+  errorBody: { fontSize: 14, color: '#6B7280', textAlign: 'center' },
+  retryButton: { marginTop: 8, backgroundColor: '#4F46E5', borderRadius: 10, paddingVertical: 10, paddingHorizontal: 16 },
+  retryText: { color: '#FFFFFF', fontWeight: '700', fontSize: 14 },
 })
