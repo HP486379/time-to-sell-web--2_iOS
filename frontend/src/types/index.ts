@@ -2,13 +2,11 @@ export { INDEX_LABELS } from '../../../shared/types'
 export type { IndexType } from '../../../shared/types'
 
 import { INDEX_LABELS, type IndexType } from '../../../shared/types'
+import { envFlagEnabled } from '../constants/env'
 
-const paidFlag = String(import.meta.env.VITE_PAID_FEATURES_ENABLED ?? 'false').toLowerCase()
-export const PAID_FEATURES_ENABLED = paidFlag === '1' || paidFlag === 'true' || paidFlag === 'yes'
+export const PAID_FEATURES_ENABLED = envFlagEnabled(import.meta.env.VITE_PAID_FEATURES_ENABLED)
 
-export const AVAILABLE_INDEX_TYPES: IndexType[] = PAID_FEATURES_ENABLED
-  ? (Object.keys(INDEX_LABELS) as IndexType[])
-  : ['SP500']
+export const AVAILABLE_INDEX_TYPES: readonly IndexType[] = Object.keys(INDEX_LABELS) as IndexType[]
 
 export function normalizeIndexTypeForPlan(indexType: IndexType): IndexType {
   return AVAILABLE_INDEX_TYPES.includes(indexType) ? indexType : 'SP500'
