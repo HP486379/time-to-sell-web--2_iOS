@@ -1,7 +1,0 @@
-fastapi
-uvicorn
-pytest
-yfinance
-requests
-python-dotenv
-pandas
