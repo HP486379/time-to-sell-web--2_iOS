@@ -7,9 +7,9 @@ import type {
   WebViewErrorEvent,
   WebViewMessageEvent,
 } from 'react-native-webview/lib/WebViewTypes'
-import type { CustomerInfo } from 'react-native-purchases'
 import {
   buildEntitlementFlags,
+  type CustomerInfo,
   configureRevenueCat,
   getCustomerInfoSafe,
   getDefaultOfferingSafe,

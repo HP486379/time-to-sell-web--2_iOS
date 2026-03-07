@@ -1,8 +1,16 @@
-import Purchases, { type CustomerInfo, type PurchasesOffering, type PurchasesPackage } from 'react-native-purchases'
-
 const IOS_PUBLIC_SDK_KEY =
   (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env
     ?.EXPO_PUBLIC_REVENUECAT_IOS_PUBLIC_SDK_KEY ?? ''
+
+const REVENUECAT_TEMP_DISABLED = true
+
+type ActiveEntitlements = Record<string, unknown>
+
+export type CustomerInfo = {
+  entitlements: {
+    active: ActiveEntitlements
+  }
+}
 
 export type AppIndexType = 'SP500' | 'sp500_jpy' | 'TOPIX' | 'NIKKEI' | 'NIFTY50' | 'ORUKAN' | 'orukan_jpy'
 export type EntitlementId =
@@ -23,84 +31,46 @@ export const INDEX_TO_ENTITLEMENT: Record<AppIndexType, EntitlementId | null> = 
   orukan_jpy: 'allcountry_jpy',
 }
 
-let configured = false
-const REVENUECAT_TIMEOUT_MS = 5000
-
-async function withTimeout<T>(task: Promise<T>, label: string): Promise<T | null> {
-  const timeoutPromise = new Promise<null>((resolve) => {
-    setTimeout(() => {
-      console.error(`[revenuecat] timeout reached (${label}, ${REVENUECAT_TIMEOUT_MS}ms)`)
-      resolve(null)
-    }, REVENUECAT_TIMEOUT_MS)
-  })
-
-  return await Promise.race([task, timeoutPromise])
+function shouldDisableRevenueCat(): boolean {
+  if (REVENUECAT_TEMP_DISABLED) return true
+  if (!IOS_PUBLIC_SDK_KEY) return true
+  if (IOS_PUBLIC_SDK_KEY.startsWith('test_')) return true
+  return false
 }
 
 export async function configureRevenueCat(): Promise<boolean> {
-  if (configured) return true
-  console.log('[revenuecat] configure start')
-  if (!IOS_PUBLIC_SDK_KEY) {
-    console.error('[revenuecat] EXPO_PUBLIC_REVENUECAT_IOS_PUBLIC_SDK_KEY が未設定です')
-    return false
-  }
-
   try {
-    const configureTask = new Promise<boolean>((resolve, reject) => {
-      try {
-        Purchases.configure({ apiKey: IOS_PUBLIC_SDK_KEY })
-        resolve(true)
-      } catch (error) {
-        reject(error)
-      }
-    })
-
-    const result = await withTimeout(configureTask, 'configure')
-    if (result === null) {
-      console.error('[revenuecat] configure fail (timeout)')
+    if (shouldDisableRevenueCat()) {
+      console.log('[revenuecat] disabled (temp-off or sdk-key missing/test_)')
       return false
     }
-    configured = true
-    console.log('[revenuecat] configure success')
-    return true
+
+    // 一時無効化期間は configure を呼ばない（クラッシュ回避優先）
+    return false
   } catch (error) {
-    console.error('[revenuecat] configure fail', error)
+    console.error('[revenuecat] configure fail (non-blocking)', error)
     return false
   }
 }
 
 export async function getCustomerInfoSafe(): Promise<CustomerInfo | null> {
-  console.log('[revenuecat] getCustomerInfo start')
-  const ok = await configureRevenueCat()
-  if (!ok) return null
   try {
-    const info = await withTimeout(Purchases.getCustomerInfo(), 'getCustomerInfo')
-    if (!info) {
-      console.error('[revenuecat] getCustomerInfo fail (timeout)')
-      return null
-    }
-    console.log('[revenuecat] getCustomerInfo success')
-    return info
+    const ok = await configureRevenueCat()
+    if (!ok) return null
+    return null
   } catch (error) {
-    console.error('[revenuecat] getCustomerInfo fail', error)
+    console.error('[revenuecat] getCustomerInfo fail (non-blocking)', error)
     return null
   }
 }
 
-export async function getDefaultOfferingSafe(): Promise<PurchasesOffering | null> {
-  const ok = await configureRevenueCat()
-  if (!ok) return null
+export async function getDefaultOfferingSafe(): Promise<null> {
   try {
-    const offerings = await withTimeout(Purchases.getOfferings(), 'getOfferings')
-    if (!offerings) {
-      console.error('[revenuecat] getOfferings failed (timeout)')
-      return null
-    }
-    const current = offerings.current ?? null
-    console.log('[revenuecat] offerings fetched', { hasCurrent: !!current, count: Object.keys(offerings.all).length })
-    return current
+    const ok = await configureRevenueCat()
+    if (!ok) return null
+    return null
   } catch (error) {
-    console.error('[revenuecat] getOfferings failed', error)
+    console.error('[revenuecat] getOfferings fail (non-blocking)', error)
     return null
   }
 }
@@ -112,60 +82,32 @@ export function isIndexUnlocked(indexType: AppIndexType, customerInfo: CustomerI
   return !!customerInfo.entitlements.active[entitlementId]
 }
 
-function findPackageByEntitlement(offering: PurchasesOffering | null, entitlementId: EntitlementId): PurchasesPackage | null {
-  if (!offering) return null
-  return (
-    offering.availablePackages.find((pkg) => pkg.product.identifier === entitlementId || pkg.identifier === entitlementId) ??
-    null
-  )
-}
-
 export async function purchaseIndex(indexType: AppIndexType): Promise<CustomerInfo | null> {
-  const entitlementId = INDEX_TO_ENTITLEMENT[indexType]
-  if (!entitlementId) {
-    console.log('[revenuecat] free index selected, purchase not required', { indexType })
-    return getCustomerInfoSafe()
-  }
-
-  const ok = await configureRevenueCat()
-  if (!ok) return null
-
   try {
-    const offering = await getDefaultOfferingSafe()
-    const targetPackage = findPackageByEntitlement(offering, entitlementId)
-    if (!targetPackage) {
-      console.error('[revenuecat] target package not found in default offering', { indexType, entitlementId })
-      return await getCustomerInfoSafe()
+    const ok = await configureRevenueCat()
+    if (!ok) {
+      console.log('[revenuecat] purchase skipped (disabled)', { indexType })
+      return null
     }
-
-    await Purchases.purchasePackage(targetPackage)
-    console.log('[revenuecat] purchase success', { indexType, entitlementId })
-  } catch (error: unknown) {
-    const cancelled = typeof error === 'object' && error !== null && 'userCancelled' in error
-      ? Boolean((error as { userCancelled?: boolean }).userCancelled)
-      : false
-    if (cancelled) {
-      console.log('[revenuecat] purchase cancelled', { indexType, entitlementId })
-    } else {
-      console.error('[revenuecat] purchase failed', { indexType, entitlementId, error })
-    }
+    return null
+  } catch (error) {
+    console.error('[revenuecat] purchase failed (non-blocking)', { indexType, error })
+    return null
   }
-
-  return await getCustomerInfoSafe()
 }
 
 export async function restorePurchasesSafe(): Promise<CustomerInfo | null> {
-  const ok = await configureRevenueCat()
-  if (!ok) return null
-
   try {
-    await Purchases.restorePurchases()
-    console.log('[revenuecat] restore purchases success')
+    const ok = await configureRevenueCat()
+    if (!ok) {
+      console.log('[revenuecat] restore skipped (disabled)')
+      return null
+    }
+    return null
   } catch (error) {
-    console.error('[revenuecat] restore purchases failed', error)
+    console.error('[revenuecat] restore failed (non-blocking)', error)
+    return null
   }
-
-  return await getCustomerInfoSafe()
 }
 
 export function buildEntitlementFlags(customerInfo: CustomerInfo | null): Record<string, boolean> {
