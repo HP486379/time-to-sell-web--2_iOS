@@ -9,9 +9,9 @@ const RAW_BACKEND_URL =
 const BACKEND_URL =
   RAW_BACKEND_URL && RAW_BACKEND_URL.trim().length > 0
     ? RAW_BACKEND_URL.trim()
-    : 'https://time-to-sell-web-ios.onrender.com'
+    : 'https://time-to-sell-web-2-ios-api.vercel.app'
 
-const INSTALL_ID_KEY = 'timetosell_install_id'
+const USER_ID_KEY = 'timetosell_user_id'
 
 function buildBackendUrl(path: string): string {
   const base = BACKEND_URL.replace(/\/$/, '')
@@ -19,10 +19,10 @@ function buildBackendUrl(path: string): string {
   return `${base}${p}`
 }
 
-export async function getOrCreateInstallId(): Promise<string> {
-  const fallback = `install-${Date.now()}`
+export async function getOrCreateUserId(): Promise<string> {
+  const fallback = `user-${Date.now()}`
   try {
-    const existing = await SecureStore.getItemAsync(INSTALL_ID_KEY)
+    const existing = await SecureStore.getItemAsync(USER_ID_KEY)
     if (existing) return existing
 
     let idfv: string | null = null
@@ -32,13 +32,13 @@ export async function getOrCreateInstallId(): Promise<string> {
       idfv = null
     }
 
-    const installId = idfv ?? fallback
+    const userId = idfv ?? fallback
     try {
-      await SecureStore.setItemAsync(INSTALL_ID_KEY, installId)
+      await SecureStore.setItemAsync(USER_ID_KEY, userId)
     } catch {
       // 保存できなくても動かす（審査で落とさない）
     }
-    return installId
+    return userId
   } catch {
     return fallback
   }
@@ -46,7 +46,7 @@ export async function getOrCreateInstallId(): Promise<string> {
 
 type RegisterPushResult = {
   ok: boolean
-  registration?: unknown
+  [key: string]: unknown
 }
 
 /**
@@ -56,7 +56,7 @@ type RegisterPushResult = {
  * - 204/空ボディ/非JSONレスポンスでも落ちない
  */
 export async function registerPushToken(expoPushToken: string): Promise<RegisterPushResult> {
-  const installId = await getOrCreateInstallId()
+  const userId = await getOrCreateUserId()
 
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), 15000)
@@ -66,10 +66,10 @@ export async function registerPushToken(expoPushToken: string): Promise<Register
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        install_id: installId,
-        expo_push_token: expoPushToken,
+        token: expoPushToken,
+        user_id: userId,
         index_type: DEFAULT_FREE_INDEX_TYPE,
-        threshold: 80,
+        threshold: 70,
         paid: false,
       }),
       signal: controller.signal,
@@ -86,20 +86,14 @@ export async function registerPushToken(expoPushToken: string): Promise<Register
       const json = (await res.json()) as RegisterPushResult
       console.log(
         '[push] register 成功',
-        'backend=',
-        BACKEND_URL,
-        'appVersion=',
-        Application.nativeApplicationVersion
+        { token: expoPushToken, user_id: userId, backend: BACKEND_URL, result: json },
       )
       return json
     }
 
     console.log(
       '[push] register 成功(非JSON)',
-      'backend=',
-      BACKEND_URL,
-      'appVersion=',
-      Application.nativeApplicationVersion
+      { token: expoPushToken, user_id: userId, backend: BACKEND_URL, appVersion: Application.nativeApplicationVersion },
     )
     return { ok: true }
   } catch (e: any) {
