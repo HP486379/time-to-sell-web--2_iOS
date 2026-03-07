@@ -17,9 +17,7 @@
         "ITSAppUsesNonExemptEncryption": false
       }
     },
-    "plugins": [
-      "expo-notifications"
-    ],
+    "plugins": [],
     "updates": {
       "enabled": false
     },

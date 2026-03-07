@@ -15,6 +15,7 @@ npm install
 EXPO_PUBLIC_API_BASE_URL=https://time-to-sell-web-2.vercel.app
 EXPO_PUBLIC_BACKEND_URL=https://time-to-sell-web-ios.onrender.com
 EXPO_PUBLIC_DASHBOARD_URL=https://time-to-sell-web-ios.vercel.app/
+EXPO_PUBLIC_REVENUECAT_IOS_PUBLIC_SDK_KEY=appl_xxx
 # 任意: WebView ログ
 EXPO_PUBLIC_WEBVIEW_DEBUG=1
 ```
@@ -28,6 +29,8 @@ EXPO_PUBLIC_WEBVIEW_DEBUG=1
 - 読み込み中スピナー、失敗時は再読み込み UI を表示
 - 通知許可を拒否しても Dashboard の利用は継続可能
 - 通知登録処理は失敗してもアプリ動作を継続する
+- RevenueCat は起動時に初期化され、default offering / customerInfo を同期する
+- 購入・復元後、およびフォアグラウンド復帰時に customerInfo を再取得して WebView へ反映する
 
 ## アイコン運用
 
