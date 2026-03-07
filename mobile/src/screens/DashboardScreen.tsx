@@ -51,9 +51,7 @@ export function DashboardScreen() {
   const [hasError, setHasError] = useState(false)
   const [errorMessage, setErrorMessage] = useState('通信環境を確認して再読み込みしてください。')
   const [customerInfo, setCustomerInfo] = useState<CustomerInfo | null>(null)
-
-  const [isUnlocked, setIsUnlocked] = useState<boolean>(false)
-  const [purchaseChecked, setPurchaseChecked] = useState<boolean>(false)
+  const [entitlementLoading, setEntitlementLoading] = useState(true)
 
   const uri = useMemo(() => WEB_DASHBOARD_URL, [])
 
@@ -61,13 +59,17 @@ export function DashboardScreen() {
 
   const injectedBeforeContentLoad = useMemo(() => {
     const payload = JSON.stringify(entitlementFlags)
+    const loadingPayload = JSON.stringify(entitlementLoading)
     return `
       (function () {
         var flags = ${payload};
+        var loading = ${loadingPayload};
         window.__TIMETOSELL_ENTITLEMENT__ = Object.assign(window.__TIMETOSELL_ENTITLEMENT__ || {}, flags);
+        window.__TIMETOSELL_ENTITLEMENT_LOADING__ = loading;
         Object.keys(flags).forEach(function (key) {
           window.localStorage.setItem('timetosell_entitlement_' + key, String(!!flags[key]));
         });
+        window.localStorage.setItem('timetosell_entitlement_loading', String(loading));
         window.__TIMETOSELL_NATIVE__ = window.__TIMETOSELL_NATIVE__ || {};
         window.__TIMETOSELL_NATIVE__.purchaseIndex = function(indexType) {
           window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'PURCHASE_INDEX', indexType: indexType }));
@@ -78,7 +80,7 @@ export function DashboardScreen() {
       })();
       true;
     `
-  }, [entitlementFlags])
+  }, [entitlementFlags, entitlementLoading])
 
   const injectEntitlementsToCurrentPage = useCallback((flags: Record<string, boolean>) => {
     const payload = JSON.stringify(flags)
@@ -94,15 +96,41 @@ export function DashboardScreen() {
     `)
   }, [])
 
-  const syncRevenueCatState = useCallback(async () => {
-    const configured = await configureRevenueCat()
-    if (!configured) return
+  const injectEntitlementLoadingToCurrentPage = useCallback((loading: boolean) => {
+    webRef.current?.injectJavaScript(`
+      (function () {
+        window.__TIMETOSELL_ENTITLEMENT_LOADING__ = ${JSON.stringify(loading)};
+        window.localStorage.setItem('timetosell_entitlement_loading', String(${JSON.stringify(loading)}));
+      })();
+      true;
+    `)
+  }, [])
 
-    await getDefaultOfferingSafe()
-    const info = await getCustomerInfoSafe()
-    setCustomerInfo(info)
-    injectEntitlementsToCurrentPage(buildEntitlementFlags(info))
-  }, [injectEntitlementsToCurrentPage])
+  const syncRevenueCatState = useCallback(async () => {
+    setEntitlementLoading(true)
+    injectEntitlementLoadingToCurrentPage(true)
+
+    try {
+      const configured = await configureRevenueCat()
+      if (!configured) {
+        setCustomerInfo(null)
+        injectEntitlementsToCurrentPage(buildEntitlementFlags(null))
+        return
+      }
+
+      await getDefaultOfferingSafe()
+      const info = await getCustomerInfoSafe()
+      setCustomerInfo(info)
+      injectEntitlementsToCurrentPage(buildEntitlementFlags(info))
+    } catch (error) {
+      console.error('[dashboard-webview] syncRevenueCatState failed', error)
+      setCustomerInfo(null)
+      injectEntitlementsToCurrentPage(buildEntitlementFlags(null))
+    } finally {
+      setEntitlementLoading(false)
+      injectEntitlementLoadingToCurrentPage(false)
+    }
+  }, [injectEntitlementLoadingToCurrentPage, injectEntitlementsToCurrentPage])
 
   useEffect(() => {
     void syncRevenueCatState()

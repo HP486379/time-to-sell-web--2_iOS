@@ -24,32 +24,65 @@ export const INDEX_TO_ENTITLEMENT: Record<AppIndexType, EntitlementId | null> = 
 }
 
 let configured = false
+const REVENUECAT_TIMEOUT_MS = 5000
+
+async function withTimeout<T>(task: Promise<T>, label: string): Promise<T | null> {
+  const timeoutPromise = new Promise<null>((resolve) => {
+    setTimeout(() => {
+      console.error(`[revenuecat] timeout reached (${label}, ${REVENUECAT_TIMEOUT_MS}ms)`)
+      resolve(null)
+    }, REVENUECAT_TIMEOUT_MS)
+  })
+
+  return await Promise.race([task, timeoutPromise])
+}
 
 export async function configureRevenueCat(): Promise<boolean> {
   if (configured) return true
+  console.log('[revenuecat] configure start')
   if (!IOS_PUBLIC_SDK_KEY) {
     console.error('[revenuecat] EXPO_PUBLIC_REVENUECAT_IOS_PUBLIC_SDK_KEY が未設定です')
     return false
   }
 
   try {
-    await Purchases.configure({ apiKey: IOS_PUBLIC_SDK_KEY })
+    const configureTask = new Promise<boolean>((resolve, reject) => {
+      try {
+        Purchases.configure({ apiKey: IOS_PUBLIC_SDK_KEY })
+        resolve(true)
+      } catch (error) {
+        reject(error)
+      }
+    })
+
+    const result = await withTimeout(configureTask, 'configure')
+    if (result === null) {
+      console.error('[revenuecat] configure fail (timeout)')
+      return false
+    }
     configured = true
-    console.log('[revenuecat] configured')
+    console.log('[revenuecat] configure success')
     return true
   } catch (error) {
-    console.error('[revenuecat] configure failed', error)
+    console.error('[revenuecat] configure fail', error)
     return false
   }
 }
 
 export async function getCustomerInfoSafe(): Promise<CustomerInfo | null> {
+  console.log('[revenuecat] getCustomerInfo start')
   const ok = await configureRevenueCat()
   if (!ok) return null
   try {
-    return await Purchases.getCustomerInfo()
+    const info = await withTimeout(Purchases.getCustomerInfo(), 'getCustomerInfo')
+    if (!info) {
+      console.error('[revenuecat] getCustomerInfo fail (timeout)')
+      return null
+    }
+    console.log('[revenuecat] getCustomerInfo success')
+    return info
   } catch (error) {
-    console.error('[revenuecat] getCustomerInfo failed', error)
+    console.error('[revenuecat] getCustomerInfo fail', error)
     return null
   }
 }
@@ -58,7 +91,11 @@ export async function getDefaultOfferingSafe(): Promise<PurchasesOffering | null
   const ok = await configureRevenueCat()
   if (!ok) return null
   try {
-    const offerings = await Purchases.getOfferings()
+    const offerings = await withTimeout(Purchases.getOfferings(), 'getOfferings')
+    if (!offerings) {
+      console.error('[revenuecat] getOfferings failed (timeout)')
+      return null
+    }
     const current = offerings.current ?? null
     console.log('[revenuecat] offerings fetched', { hasCurrent: !!current, count: Object.keys(offerings.all).length })
     return current
