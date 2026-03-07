@@ -1,3 +1,37 @@
 {
-  "orientation": "all"
+  "expo": {
+    "name": "time-to-sell-mobile",
+    "slug": "time-to-sell-mobile",
+    "version": "1.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.timetosell.mobile",
+      "buildNumber": "34",
+      "icon": "../frontend/public/assets/icon.png",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "plugins": [
+      "expo-notifications"
+    ],
+    "updates": {
+      "enabled": false
+    },
+    "icon": "../frontend/public/assets/icon.png",
+    "extra": {
+      "eas": {
+        "projectId": "6565316a-da68-4256-acc2-6f1fc6d7cb22"
+      },
+      "revenuecatPublicApiKey": "YOUR_REVENUECAT_PUBLIC_SDK_KEY"
+    },
+    "android": {
+      "package": "com.timetosell.mobile"
+    }
+  }
 }
