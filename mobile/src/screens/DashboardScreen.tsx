@@ -1,8 +1,22 @@
-import { useCallback, useMemo, useRef, useState } from 'react'
-import { ActivityIndicator, Linking, Platform, Pressable, StyleSheet, Text, View } from 'react-native'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { ActivityIndicator, AppState, Linking, Platform, Pressable, StyleSheet, Text, View } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { WebView } from 'react-native-webview'
-import type { ShouldStartLoadRequest, WebViewErrorEvent } from 'react-native-webview/lib/WebViewTypes'
+import type {
+  ShouldStartLoadRequest,
+  WebViewErrorEvent,
+  WebViewMessageEvent,
+} from 'react-native-webview/lib/WebViewTypes'
+import type { CustomerInfo } from 'react-native-purchases'
+import {
+  buildEntitlementFlags,
+  configureRevenueCat,
+  getCustomerInfoSafe,
+  getDefaultOfferingSafe,
+  purchaseIndex,
+  restorePurchasesSafe,
+  type AppIndexType,
+} from '../revenuecat'
 
 const WEB_DASHBOARD_URL =
   (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env
@@ -13,6 +27,9 @@ const WEBVIEW_DEBUG =
     ?.EXPO_PUBLIC_WEBVIEW_DEBUG === '1'
 
 const ALLOWED_HOSTS = new Set(['time-to-sell-web-ios.vercel.app'])
+
+const PURCHASE_EVENT_NAME = 'timetosell:purchase-result'
+const RESTORE_EVENT_NAME = 'timetosell:restore-result'
 
 function debugLog(...args: unknown[]) {
   if (WEBVIEW_DEBUG) {
@@ -35,8 +52,97 @@ export function DashboardScreen() {
   const [isLoading, setIsLoading] = useState(true)
   const [hasError, setHasError] = useState(false)
   const [errorMessage, setErrorMessage] = useState('通信環境を確認して再読み込みしてください。')
+  const [customerInfo, setCustomerInfo] = useState<CustomerInfo | null>(null)
 
   const uri = useMemo(() => WEB_DASHBOARD_URL, [])
+
+  const entitlementFlags = useMemo(() => buildEntitlementFlags(customerInfo), [customerInfo])
+
+  const injectedBeforeContentLoad = useMemo(() => {
+    const payload = JSON.stringify(entitlementFlags)
+    return `
+      (function () {
+        var flags = ${payload};
+        window.__TIMETOSELL_ENTITLEMENT__ = Object.assign(window.__TIMETOSELL_ENTITLEMENT__ || {}, flags);
+        Object.keys(flags).forEach(function (key) {
+          window.localStorage.setItem('timetosell_entitlement_' + key, String(!!flags[key]));
+        });
+        window.__TIMETOSELL_NATIVE__ = window.__TIMETOSELL_NATIVE__ || {};
+        window.__TIMETOSELL_NATIVE__.purchaseIndex = function(indexType) {
+          window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'PURCHASE_INDEX', indexType: indexType }));
+        };
+        window.__TIMETOSELL_NATIVE__.restorePurchases = function() {
+          window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'RESTORE_PURCHASES' }));
+        };
+      })();
+      true;
+    `
+  }, [entitlementFlags])
+
+  const injectEntitlementsToCurrentPage = useCallback((flags: Record<string, boolean>) => {
+    const payload = JSON.stringify(flags)
+    webRef.current?.injectJavaScript(`
+      (function () {
+        var flags = ${payload};
+        window.__TIMETOSELL_ENTITLEMENT__ = Object.assign(window.__TIMETOSELL_ENTITLEMENT__ || {}, flags);
+        Object.keys(flags).forEach(function (key) {
+          window.localStorage.setItem('timetosell_entitlement_' + key, String(!!flags[key]));
+        });
+      })();
+      true;
+    `)
+  }, [])
+
+  const syncRevenueCatState = useCallback(async () => {
+    const configured = await configureRevenueCat()
+    if (!configured) return
+
+    await getDefaultOfferingSafe()
+    const info = await getCustomerInfoSafe()
+    setCustomerInfo(info)
+    injectEntitlementsToCurrentPage(buildEntitlementFlags(info))
+  }, [injectEntitlementsToCurrentPage])
+
+  useEffect(() => {
+    void syncRevenueCatState()
+  }, [syncRevenueCatState])
+
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') {
+        void syncRevenueCatState()
+      }
+    })
+    return () => sub.remove()
+  }, [syncRevenueCatState])
+
+  const handleWebViewMessage = useCallback(async (event: WebViewMessageEvent) => {
+    try {
+      const data = JSON.parse(event.nativeEvent.data ?? '{}') as { type?: string; indexType?: AppIndexType }
+      if (data.type === 'PURCHASE_INDEX' && data.indexType) {
+        const nextInfo = await purchaseIndex(data.indexType)
+        setCustomerInfo(nextInfo)
+        const flags = buildEntitlementFlags(nextInfo)
+        injectEntitlementsToCurrentPage(flags)
+        webRef.current?.injectJavaScript(
+          `window.dispatchEvent(new CustomEvent('${PURCHASE_EVENT_NAME}', { detail: ${JSON.stringify({
+            ok: true,
+            indexType: data.indexType,
+          })} })); true;`,
+        )
+      } else if (data.type === 'RESTORE_PURCHASES') {
+        const nextInfo = await restorePurchasesSafe()
+        setCustomerInfo(nextInfo)
+        const flags = buildEntitlementFlags(nextInfo)
+        injectEntitlementsToCurrentPage(flags)
+        webRef.current?.injectJavaScript(
+          `window.dispatchEvent(new CustomEvent('${RESTORE_EVENT_NAME}', { detail: ${JSON.stringify({ ok: true })} })); true;`,
+        )
+      }
+    } catch (error) {
+      console.error('[dashboard-webview] message handling failed', error)
+    }
+  }, [injectEntitlementsToCurrentPage])
 
   const retry = useCallback(() => {
     debugLog('retry', { uri })
@@ -78,6 +184,8 @@ export function DashboardScreen() {
         style={styles.webview}
         originWhitelist={['*']}
         onShouldStartLoadWithRequest={onShouldStartLoadWithRequest}
+        injectedJavaScriptBeforeContentLoaded={injectedBeforeContentLoad}
+        onMessage={handleWebViewMessage}
         pullToRefreshEnabled
         startInLoadingState
         allowsBackForwardNavigationGestures={Platform.OS === 'ios'}
