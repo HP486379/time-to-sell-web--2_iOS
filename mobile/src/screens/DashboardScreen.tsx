@@ -13,6 +13,7 @@ import {
   configureRevenueCat,
   getCustomerInfoSafe,
   getDefaultOfferingSafe,
+  isIndexUnlocked,
   purchaseIndex,
   restorePurchasesSafe,
   type AppIndexType,
@@ -138,9 +139,10 @@ export function DashboardScreen() {
         setCustomerInfo(nextInfo)
         const flags = buildEntitlementFlags(nextInfo)
         injectEntitlementsToCurrentPage(flags)
+        const unlocked = isIndexUnlocked(data.indexType, nextInfo)
         webRef.current?.injectJavaScript(
           `window.dispatchEvent(new CustomEvent('${PURCHASE_EVENT_NAME}', { detail: ${JSON.stringify({
-            ok: true,
+            ok: unlocked,
             indexType: data.indexType,
           })} })); true;`,
         )
