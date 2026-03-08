@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Grid,
   Card,
@@ -295,6 +295,20 @@ const getActiveBreakdown = (
   }
 }
 
+
+type TimeToSellNativeWindow = Window & {
+  __TIMETOSELL_NATIVE__?: {
+    purchaseIndex?: (indexType: IndexType) => void
+  }
+}
+
+type PurchaseResultDetail = {
+  ok?: boolean
+  indexType?: IndexType
+}
+
+const PURCHASE_EVENT_NAME = 'timetosell:purchase-result'
+
 function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
   const [responses, setResponses] = useState<Partial<Record<IndexType, EvaluateResponse>>>({})
   const [error, setError] = useState<string | null>(null)
@@ -324,6 +338,7 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
   const [isEventsLoading, setIsEventsLoading] = useState(false)
   const [eventsError, setEventsError] = useState<string | null>(null)
   const [nikkeiUnlocked, setNikkeiUnlocked] = useState(false)
+  const [isPurchasing, setIsPurchasing] = useState(false)
 
   useEffect(() => {
     setNikkeiUnlocked(isNikkeiUnlocked())
@@ -343,6 +358,75 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
       setLastRequest((prev) => ({ ...prev, index_type: fallback }))
     }
   }, [indexType, nikkeiUnlocked])
+
+  const requestNativePurchase = useCallback((targetIndex: IndexType): Promise<boolean> => {
+    if (typeof window === 'undefined') return Promise.resolve(false)
+
+    const bridgeWindow = window as TimeToSellNativeWindow
+    const purchaseFn = bridgeWindow.__TIMETOSELL_NATIVE__?.purchaseIndex
+    if (!purchaseFn) return Promise.resolve(false)
+
+    return new Promise<boolean>((resolve) => {
+      let timeoutId: ReturnType<typeof setTimeout> | null = null
+
+      const cleanup = () => {
+        window.removeEventListener(PURCHASE_EVENT_NAME, onPurchaseResult as EventListener)
+        if (timeoutId) clearTimeout(timeoutId)
+      }
+
+      const onPurchaseResult = (event: Event) => {
+        const customEvent = event as CustomEvent<PurchaseResultDetail>
+        const detail = customEvent.detail ?? {}
+        if (detail.indexType && detail.indexType !== targetIndex) return
+        cleanup()
+        resolve(Boolean(detail.ok))
+      }
+
+      window.addEventListener(PURCHASE_EVENT_NAME, onPurchaseResult as EventListener)
+      timeoutId = setTimeout(() => {
+        cleanup()
+        resolve(false)
+      }, 30000)
+
+      try {
+        purchaseFn(targetIndex)
+      } catch {
+        cleanup()
+        resolve(false)
+      }
+    })
+  }, [])
+
+  const handleIndexSelect = useCallback(async (nextIndex: IndexType) => {
+    const normalized = normalizeIndexTypeForPlan(nextIndex)
+    if (!isIndexLocked(normalized, nikkeiUnlocked)) {
+      setIndexType(normalized)
+      return
+    }
+
+    if (isPurchasing) return
+
+    const label = INDEX_LABELS[normalized] ?? normalized
+    const confirmed = window.confirm(`${label} を購入しますか？`)
+    if (!confirmed) return
+
+    setIsPurchasing(true)
+    try {
+      const purchased = await requestNativePurchase(normalized)
+      if (!purchased) {
+        window.alert('購入が完了しなかったため、指数はロックされたままです。')
+        return
+      }
+
+      const unlocked = isNikkeiUnlocked()
+      setNikkeiUnlocked(unlocked)
+      if (unlocked) {
+        setIndexType(normalized)
+      }
+    } finally {
+      setIsPurchasing(false)
+    }
+  }, [isPurchasing, nikkeiUnlocked, requestNativePurchase])
 
   const tooltipTexts = useMemo(
     () => buildTooltips(indexType, lastRequest.score_ma),
@@ -871,16 +955,13 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
             labelId="index-select-label"
             value={indexType}
             label="対象インデックス"
+            disabled={isPurchasing}
             onChange={(e) => {
-              const normalized = normalizeIndexTypeForPlan(e.target.value as IndexType)
-              if (isIndexLocked(normalized, nikkeiUnlocked)) {
-                return
-              }
-              setIndexType(normalized)
+              void handleIndexSelect(e.target.value as IndexType)
             }}
           >
             {AVAILABLE_INDEX_TYPES.map((key) => (
-              <MenuItem key={key} value={key} disabled={isIndexLocked(key, nikkeiUnlocked)}>
+              <MenuItem key={key} value={key}>
                 {isIndexLocked(key, nikkeiUnlocked) ? `${INDEX_LABELS[key]}（購入が必要）` : INDEX_LABELS[key]}
               </MenuItem>
             ))}
@@ -897,6 +978,11 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
           {evalStatus === 'degraded' && isEvalRetrying && (
             <Typography variant="caption" color="text.secondary">
               再取得中…
+            </Typography>
+          )}
+          {isPurchasing && (
+            <Typography variant="caption" color="text.secondary">
+              購入中…
             </Typography>
           )}
           <Tooltip title="最新データを取得" arrow>

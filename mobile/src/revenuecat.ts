@@ -1,8 +1,7 @@
+import Constants from 'expo-constants'
 import Purchases, { type CustomerInfo, type PurchasesOffering, type PurchasesPackage } from 'react-native-purchases'
 
-const IOS_PUBLIC_SDK_KEY =
-  (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env
-    ?.EXPO_PUBLIC_REVENUECAT_IOS_PUBLIC_SDK_KEY ?? ''
+const IOS_PUBLIC_SDK_KEY = Constants.expoConfig?.extra?.revenuecatPublicApiKey ?? ''
 
 export type AppIndexType = 'SP500' | 'sp500_jpy' | 'TOPIX' | 'NIKKEI' | 'NIFTY50' | 'ORUKAN' | 'orukan_jpy'
 export type EntitlementId =
@@ -28,14 +27,20 @@ let configured = false
 export async function configureRevenueCat(): Promise<boolean> {
   if (configured) return true
   if (!IOS_PUBLIC_SDK_KEY) {
-    console.error('[revenuecat] EXPO_PUBLIC_REVENUECAT_IOS_PUBLIC_SDK_KEY が未設定です')
+    console.error('[revenuecat] revenuecatPublicApiKey is missing in app.json (expo.extra.revenuecatPublicApiKey)')
     return false
+  }
+
+  const keyPrefix = IOS_PUBLIC_SDK_KEY.slice(0, 5)
+  console.log('[revenuecat] key prefix:', keyPrefix)
+  if (keyPrefix !== 'appl_') {
+    console.warn('[revenuecat] key prefix is not appl_ (please verify iOS Public SDK Key)')
   }
 
   try {
     await Purchases.configure({ apiKey: IOS_PUBLIC_SDK_KEY })
     configured = true
-    console.log('[revenuecat] configured')
+    console.log('[revenuecat] configured successfully')
     return true
   } catch (error) {
     console.error('[revenuecat] configure failed', error)

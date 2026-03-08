@@ -13,6 +13,7 @@ import {
   configureRevenueCat,
   getCustomerInfoSafe,
   getDefaultOfferingSafe,
+  isIndexUnlocked,
   purchaseIndex,
   restorePurchasesSafe,
   type AppIndexType,
@@ -95,13 +96,26 @@ export function DashboardScreen() {
   }, [])
 
   const syncRevenueCatState = useCallback(async () => {
-    const configured = await configureRevenueCat()
-    if (!configured) return
+    try {
+      const configured = await configureRevenueCat()
+      if (!configured) {
+        console.error('[dashboard-webview] RevenueCat configure failed. fallback to free entitlements')
+        setCustomerInfo(null)
+        injectEntitlementsToCurrentPage(buildEntitlementFlags(null))
+        return
+      }
 
-    await getDefaultOfferingSafe()
-    const info = await getCustomerInfoSafe()
-    setCustomerInfo(info)
-    injectEntitlementsToCurrentPage(buildEntitlementFlags(info))
+      await getDefaultOfferingSafe()
+      const info = await getCustomerInfoSafe()
+      setCustomerInfo(info)
+      injectEntitlementsToCurrentPage(buildEntitlementFlags(info))
+    } catch (error) {
+      console.error('[dashboard-webview] syncRevenueCatState failed', error)
+      setCustomerInfo(null)
+      injectEntitlementsToCurrentPage(buildEntitlementFlags(null))
+    } finally {
+      setPurchaseChecked(true)
+    }
   }, [injectEntitlementsToCurrentPage])
 
   useEffect(() => {
@@ -125,9 +139,10 @@ export function DashboardScreen() {
         setCustomerInfo(nextInfo)
         const flags = buildEntitlementFlags(nextInfo)
         injectEntitlementsToCurrentPage(flags)
+        const unlocked = isIndexUnlocked(data.indexType, nextInfo)
         webRef.current?.injectJavaScript(
           `window.dispatchEvent(new CustomEvent('${PURCHASE_EVENT_NAME}', { detail: ${JSON.stringify({
-            ok: true,
+            ok: unlocked,
             indexType: data.indexType,
           })} })); true;`,
         )
@@ -199,7 +214,6 @@ export function DashboardScreen() {
         pullToRefreshEnabled
         startInLoadingState
         allowsBackForwardNavigationGestures={Platform.OS === 'ios'}
-        injectedJavaScriptBeforeContentLoaded={injectedBeforeLoad}
         onLoadStart={({ nativeEvent }) => {
           debugLog('load-start', nativeEvent.url)
           setHasError(false)
