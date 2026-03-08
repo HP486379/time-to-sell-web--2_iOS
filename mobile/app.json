@@ -11,7 +11,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.timetosell.mobile",
-      "buildNumber": "34",
+      "buildNumber": "35",
       "icon": "../frontend/public/assets/icon.png",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
