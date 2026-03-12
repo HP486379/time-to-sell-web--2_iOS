@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ActivityIndicator, AppState, Linking, Platform, Pressable, StyleSheet, Text, View } from 'react-native'
+import { ActivityIndicator, AppState, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { WebView } from 'react-native-webview'
 import type {
@@ -17,6 +17,7 @@ import {
   purchaseIndex,
   restorePurchasesSafe,
   type AppIndexType,
+  type IapDebugLogger,
 } from '../revenuecat'
 
 const WEB_DASHBOARD_URL =
@@ -27,6 +28,8 @@ const WEBVIEW_DEBUG =
   (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env
     ?.EXPO_PUBLIC_WEBVIEW_DEBUG === '1'
 
+const IAP_DEBUG = true
+
 const ALLOWED_HOSTS = new Set(['time-to-sell-web-ios.vercel.app'])
 
 const PURCHASE_EVENT_NAME = 'timetosell:purchase-result'
@@ -36,16 +39,12 @@ function debugLog(...args: unknown[]) {
   if (WEBVIEW_DEBUG) console.log('[dashboard-webview]', ...args)
 }
 
-function iapLog(step: string, message: string, payload?: unknown) {
-  if (payload === undefined) {
-    console.log(`[IAP] ${step} ${message}`)
-    return
+function formatErrorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message
+  if (typeof error === 'object' && error !== null && 'message' in error) {
+    return String((error as { message?: unknown }).message)
   }
-  console.log(`[IAP] ${step} ${message}`, payload)
-}
-
-function iapError(step: string, message: string, error: unknown) {
-  console.error(`[IAP] ${step} ${message}`, error)
+  return String(error)
 }
 
 function isAllowedInWebView(url: string): boolean {
@@ -67,6 +66,23 @@ export function DashboardScreen() {
 
   const [isUnlocked, setIsUnlocked] = useState<boolean>(false)
   const [purchaseChecked, setPurchaseChecked] = useState<boolean>(false)
+  const [iapDebugVisible, setIapDebugVisible] = useState<boolean>(IAP_DEBUG)
+  const [iapDebugLines, setIapDebugLines] = useState<string[]>([])
+
+  const appendIapDebug = useCallback((line: string) => {
+    if (!IAP_DEBUG) return
+    setIapDebugLines((prev) => [...prev, `${new Date().toLocaleTimeString()} ${line}`].slice(-20))
+  }, [])
+
+  const iapDebugLogger: IapDebugLogger = useCallback((line: string) => {
+    appendIapDebug(line)
+  }, [appendIapDebug])
+
+  const logIapError = useCallback((step: string, message: string, error: unknown) => {
+    const line = `[IAP] ${step} ${message} error=${formatErrorMessage(error)}`
+    appendIapDebug(line)
+    console.error(`[IAP] ${step} ${message}`, error)
+  }, [appendIapDebug])
 
   const uri = useMemo(() => WEB_DASHBOARD_URL, [])
 
@@ -76,7 +92,12 @@ export function DashboardScreen() {
     const payload = JSON.stringify(entitlementFlags)
     return `
       (function () {
-        console.log('[IAP] step-1 web bridge injection started');
+        var emitIapDebug = function(step, message, payload) {
+          if (!window.ReactNativeWebView) return;
+          var debugPayload = JSON.stringify({ type: 'IAP_DEBUG_LOG', step: step, message: message, payload: payload || null });
+          window.ReactNativeWebView.postMessage(debugPayload);
+        };
+        emitIapDebug('step-1', 'web bridge injection started');
         var flags = ${payload};
         window.__TIMETOSELL_ENTITLEMENT__ = Object.assign(window.__TIMETOSELL_ENTITLEMENT__ || {}, flags);
         Object.keys(flags).forEach(function (key) {
@@ -84,26 +105,24 @@ export function DashboardScreen() {
         });
         window.__TIMETOSELL_NATIVE__ = window.__TIMETOSELL_NATIVE__ || {};
         window.__TIMETOSELL_NATIVE__.purchaseIndex = function(indexType) {
-          console.log('[IAP] step-2 window.__TIMETOSELL_NATIVE__.purchaseIndex called', { indexType: indexType });
+          emitIapDebug('step-2', 'window.__TIMETOSELL_NATIVE__.purchaseIndex called', { indexType: indexType });
           if (!window.ReactNativeWebView) {
-            console.warn('[IAP] step-3 ReactNativeWebView bridge missing, PURCHASE_INDEX skipped');
             return;
           }
           var message = JSON.stringify({ type: 'PURCHASE_INDEX', indexType: indexType });
-          console.log('[IAP] step-3 sending PURCHASE_INDEX message', message);
-          window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'PURCHASE_INDEX', indexType: indexType }));
+          emitIapDebug('step-3', 'sending PURCHASE_INDEX message', message);
+          window.ReactNativeWebView.postMessage(message);
         };
         window.__TIMETOSELL_NATIVE__.restorePurchases = function() {
-          console.log('[IAP] step-2b window.__TIMETOSELL_NATIVE__.restorePurchases called');
+          emitIapDebug('step-2b', 'window.__TIMETOSELL_NATIVE__.restorePurchases called');
           if (!window.ReactNativeWebView) {
-            console.warn('[IAP] step-3b ReactNativeWebView bridge missing, RESTORE_PURCHASES skipped');
             return;
           }
           var message = JSON.stringify({ type: 'RESTORE_PURCHASES' });
-          console.log('[IAP] step-3b sending RESTORE_PURCHASES message', message);
-          window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'RESTORE_PURCHASES' }));
+          emitIapDebug('step-3b', 'sending RESTORE_PURCHASES message', message);
+          window.ReactNativeWebView.postMessage(message);
         };
-        console.log('[IAP] step-1 web bridge injection completed');
+        emitIapDebug('step-1', 'web bridge injection completed');
       })();
       true;
     `
@@ -125,30 +144,30 @@ export function DashboardScreen() {
 
   const syncRevenueCatState = useCallback(async () => {
     try {
-      iapLog('step-5', 'syncRevenueCatState started')
-      const configured = await configureRevenueCat()
+      appendIapDebug('[IAP] step-5 syncRevenueCatState started')
+      const configured = await configureRevenueCat(iapDebugLogger)
       if (!configured) {
-        iapLog('step-5', 'configureRevenueCat failed, fallback to free entitlements')
+        appendIapDebug('[IAP] step-5 configureRevenueCat failed, fallback to free entitlements')
         console.error('[dashboard-webview] RevenueCat configure failed. fallback to free entitlements')
         setCustomerInfo(null)
         injectEntitlementsToCurrentPage(buildEntitlementFlags(null))
         return
       }
 
-      iapLog('step-5', 'configureRevenueCat succeeded')
-      await getDefaultOfferingSafe()
-      const info = await getCustomerInfoSafe()
+      appendIapDebug('[IAP] step-5 configureRevenueCat succeeded')
+      await getDefaultOfferingSafe(iapDebugLogger)
+      const info = await getCustomerInfoSafe(iapDebugLogger)
       setCustomerInfo(info)
       injectEntitlementsToCurrentPage(buildEntitlementFlags(info))
     } catch (error) {
-      iapError('step-5', 'syncRevenueCatState failed', error)
+      logIapError('step-5', 'syncRevenueCatState failed', error)
       console.error('[dashboard-webview] syncRevenueCatState failed', error)
       setCustomerInfo(null)
       injectEntitlementsToCurrentPage(buildEntitlementFlags(null))
     } finally {
       setPurchaseChecked(true)
     }
-  }, [injectEntitlementsToCurrentPage])
+  }, [appendIapDebug, iapDebugLogger, injectEntitlementsToCurrentPage, logIapError])
 
   useEffect(() => {
     void syncRevenueCatState()
@@ -166,22 +185,24 @@ export function DashboardScreen() {
   const handleWebViewMessage = useCallback(async (event: WebViewMessageEvent) => {
     try {
       const rawData = event.nativeEvent.data ?? ''
-      iapLog('step-4', 'WebView message received (raw)', rawData)
+      appendIapDebug(`[IAP] step-4 handleWebViewMessage raw=${rawData}`)
       if (!rawData) {
-        iapLog('step-4', 'WebView message skipped because raw data is empty')
+        appendIapDebug('[IAP] step-4 message skipped because raw data is empty')
         return
       }
 
-      // IAP停止点の切り分けメモ:
-      // - step-2/3 が出ない: Web側から purchaseIndex 呼び出し未到達 or bridge未生成。
-      // - step-4 が出ない: WebView postMessage 未送信。
-      // - step-6 以降が出ない: PURCHASE_INDEX 以外のmessage/パース失敗。
-      // - step-8 以降が出ない: RevenueCat設定やoffering/package解決で停止。
-      const data = JSON.parse(event.nativeEvent.data ?? '{}') as { type?: string; indexType?: AppIndexType }
+      const data = JSON.parse(rawData) as { type?: string; indexType?: AppIndexType; step?: string; message?: string; payload?: unknown }
+
+      if (data.type === 'IAP_DEBUG_LOG') {
+        const suffix = data.payload === undefined || data.payload === null ? '' : ` ${JSON.stringify(data.payload)}`
+        appendIapDebug(`[IAP] ${data.step ?? 'step-w'} ${data.message ?? 'web debug'}${suffix}`)
+        return
+      }
+
       if (data.type === 'PURCHASE_INDEX' && data.indexType) {
-        iapLog('step-6', 'PURCHASE_INDEX received', data)
-        const nextInfo = await purchaseIndex(data.indexType)
-        iapLog('step-10', 'purchaseIndex resolved', { indexType: data.indexType, hasCustomerInfo: !!nextInfo })
+        appendIapDebug(`[IAP] step-6 PURCHASE_INDEX received indexType=${data.indexType}`)
+        const nextInfo = await purchaseIndex(data.indexType, iapDebugLogger)
+        appendIapDebug(`[IAP] step-10 purchaseIndex resolved hasCustomerInfo=${String(!!nextInfo)}`)
         setCustomerInfo(nextInfo)
         const flags = buildEntitlementFlags(nextInfo)
         injectEntitlementsToCurrentPage(flags)
@@ -193,8 +214,8 @@ export function DashboardScreen() {
           })} })); true;`,
         )
       } else if (data.type === 'RESTORE_PURCHASES') {
-        iapLog('step-6b', 'RESTORE_PURCHASES received', data)
-        const nextInfo = await restorePurchasesSafe()
+        appendIapDebug('[IAP] step-6b RESTORE_PURCHASES received')
+        const nextInfo = await restorePurchasesSafe(iapDebugLogger)
         setCustomerInfo(nextInfo)
         const flags = buildEntitlementFlags(nextInfo)
         injectEntitlementsToCurrentPage(flags)
@@ -202,13 +223,18 @@ export function DashboardScreen() {
           `window.dispatchEvent(new CustomEvent('${RESTORE_EVENT_NAME}', { detail: ${JSON.stringify({ ok: true })} })); true;`,
         )
       } else {
-        iapLog('step-6', 'message ignored because type/indexType did not match purchase flow', data)
+        appendIapDebug(`[IAP] step-6 message ignored type=${String(data.type)}`)
       }
     } catch (error) {
-      iapError('step-4', 'message handling failed', error)
+      logIapError('step-4', 'message handling failed', error)
       console.error('[dashboard-webview] message handling failed', error)
     }
-  }, [injectEntitlementsToCurrentPage])
+  }, [appendIapDebug, iapDebugLogger, injectEntitlementsToCurrentPage, logIapError])
+
+  const onWebViewMessage = useCallback((event: WebViewMessageEvent) => {
+    appendIapDebug(`[IAP] step-4 onMessage received raw=${event.nativeEvent.data ?? ''}`)
+    void handleWebViewMessage(event)
+  }, [appendIapDebug, handleWebViewMessage])
 
   const retry = useCallback(() => {
     debugLog('retry', { uri })
@@ -260,7 +286,7 @@ export function DashboardScreen() {
         originWhitelist={['*']}
         onShouldStartLoadWithRequest={onShouldStartLoadWithRequest}
         injectedJavaScriptBeforeContentLoaded={injectedBeforeContentLoad}
-        onMessage={handleWebViewMessage}
+        onMessage={onWebViewMessage}
         pullToRefreshEnabled
         startInLoadingState
         allowsBackForwardNavigationGestures={Platform.OS === 'ios'}
@@ -298,6 +324,29 @@ export function DashboardScreen() {
           </Pressable>
         </View>
       )}
+
+      {IAP_DEBUG && (
+        <View style={styles.debugPanelWrapper}>
+          <View style={styles.debugPanelHeader}>
+            <Text style={styles.debugPanelTitle}>IAP Debug ({iapDebugLines.length})</Text>
+            <View style={styles.debugPanelButtons}>
+              <Pressable style={styles.debugButton} onPress={() => setIapDebugVisible((prev) => !prev)}>
+                <Text style={styles.debugButtonText}>{iapDebugVisible ? '閉じる' : '開く'}</Text>
+              </Pressable>
+              <Pressable style={styles.debugButton} onPress={() => setIapDebugLines([])}>
+                <Text style={styles.debugButtonText}>ログ消去</Text>
+              </Pressable>
+            </View>
+          </View>
+          {iapDebugVisible && (
+            <ScrollView style={styles.debugPanelBody}>
+              {iapDebugLines.map((line, idx) => (
+                <Text key={`${idx}-${line}`} style={styles.debugLine}>{line}</Text>
+              ))}
+            </ScrollView>
+          )}
+        </View>
+      )}
     </SafeAreaView>
   )
 }
@@ -325,4 +374,27 @@ const styles = StyleSheet.create({
   errorBody: { fontSize: 14, color: '#6B7280', textAlign: 'center' },
   retryButton: { marginTop: 8, backgroundColor: '#4F46E5', borderRadius: 10, paddingVertical: 10, paddingHorizontal: 16 },
   retryText: { color: '#FFFFFF', fontWeight: '700', fontSize: 14 },
+  debugPanelWrapper: {
+    position: 'absolute',
+    left: 8,
+    right: 8,
+    bottom: 8,
+    backgroundColor: 'rgba(17,24,39,0.92)',
+    borderRadius: 8,
+    maxHeight: 220,
+  },
+  debugPanelHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingTop: 8,
+    paddingBottom: 6,
+  },
+  debugPanelTitle: { color: '#F9FAFB', fontSize: 12, fontWeight: '700' },
+  debugPanelButtons: { flexDirection: 'row', gap: 8 },
+  debugButton: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, backgroundColor: '#374151' },
+  debugButtonText: { color: '#F9FAFB', fontSize: 11, fontWeight: '600' },
+  debugPanelBody: { borderTopWidth: 1, borderTopColor: '#374151', paddingHorizontal: 10, paddingVertical: 8, maxHeight: 170 },
+  debugLine: { color: '#D1D5DB', fontSize: 10, marginBottom: 4 },
 })

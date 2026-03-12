@@ -22,27 +22,37 @@ export const INDEX_TO_ENTITLEMENT: Record<AppIndexType, EntitlementId | null> = 
   orukan_jpy: 'allcountry_jpy',
 }
 
+export type IapDebugLogger = (line: string) => void
+
 let configured = false
 
-function iapLog(step: string, message: string, payload?: unknown) {
-  if (payload === undefined) {
-    console.log(`[IAP] ${step} ${message}`)
-    return
+function formatErrorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message
+  if (typeof error === 'object' && error !== null && 'message' in error) {
+    return String((error as { message?: unknown }).message)
   }
-  console.log(`[IAP] ${step} ${message}`, payload)
+  return String(error)
 }
 
-function iapError(step: string, message: string, error: unknown) {
+function iapLog(step: string, message: string, payload?: unknown, debugLogger?: IapDebugLogger) {
+  const text = payload === undefined ? `[IAP] ${step} ${message}` : `[IAP] ${step} ${message} ${JSON.stringify(payload)}`
+  console.log(`[IAP] ${step} ${message}`, payload ?? '')
+  debugLogger?.(text)
+}
+
+function iapError(step: string, message: string, error: unknown, debugLogger?: IapDebugLogger) {
+  const text = `[IAP] ${step} ${message} error=${formatErrorMessage(error)}`
   console.error(`[IAP] ${step} ${message}`, error)
+  debugLogger?.(text)
 }
 
-export async function configureRevenueCat(): Promise<boolean> {
+export async function configureRevenueCat(debugLogger?: IapDebugLogger): Promise<boolean> {
   if (configured) {
-    iapLog('step-7', 'configureRevenueCat skipped because already configured')
+    iapLog('step-7', 'configureRevenueCat skipped because already configured', undefined, debugLogger)
     return true
   }
   if (!IOS_PUBLIC_SDK_KEY) {
-    iapLog('step-7', 'configureRevenueCat failed because key is missing')
+    iapLog('step-7', 'configureRevenueCat failed because key is missing', undefined, debugLogger)
     console.error('[revenuecat] revenuecatPublicApiKey is missing in app.json (expo.extra.revenuecatPublicApiKey)')
     return false
   }
@@ -54,51 +64,57 @@ export async function configureRevenueCat(): Promise<boolean> {
   }
 
   try {
-    iapLog('step-7', 'configureRevenueCat start', { keyPrefix })
+    iapLog('step-7', 'configureRevenueCat start', { keyPrefix }, debugLogger)
     await Purchases.configure({ apiKey: IOS_PUBLIC_SDK_KEY })
     configured = true
-    iapLog('step-7', 'configureRevenueCat success')
+    iapLog('step-7', 'configureRevenueCat success', undefined, debugLogger)
     console.log('[revenuecat] configured successfully')
     return true
   } catch (error) {
-    iapError('step-7', 'configureRevenueCat failed', error)
+    iapError('step-7', 'configureRevenueCat failed', error, debugLogger)
     console.error('[revenuecat] configure failed', error)
     return false
   }
 }
 
-export async function getCustomerInfoSafe(): Promise<CustomerInfo | null> {
-  const ok = await configureRevenueCat()
+export async function getCustomerInfoSafe(debugLogger?: IapDebugLogger): Promise<CustomerInfo | null> {
+  const ok = await configureRevenueCat(debugLogger)
   if (!ok) return null
   try {
     return await Purchases.getCustomerInfo()
   } catch (error) {
+    iapError('step-11', 'getCustomerInfo failed', error, debugLogger)
     console.error('[revenuecat] getCustomerInfo failed', error)
     return null
   }
 }
 
-export async function getDefaultOfferingSafe(): Promise<PurchasesOffering | null> {
-  const ok = await configureRevenueCat()
+export async function getDefaultOfferingSafe(debugLogger?: IapDebugLogger): Promise<PurchasesOffering | null> {
+  const ok = await configureRevenueCat(debugLogger)
   if (!ok) {
-    iapLog('step-8', 'getDefaultOfferingSafe skipped because configureRevenueCat failed')
+    iapLog('step-8', 'getDefaultOfferingSafe skipped because configureRevenueCat failed', undefined, debugLogger)
     return null
   }
   try {
-    iapLog('step-8', 'getDefaultOfferingSafe start')
+    iapLog('step-8', 'getDefaultOfferingSafe start', undefined, debugLogger)
     const offerings = await Purchases.getOfferings()
     const current = offerings.current ?? null
     const packages = current?.availablePackages ?? []
-    iapLog('step-8', 'getDefaultOfferingSafe result', {
-      hasCurrent: !!current,
-      packagesCount: packages.length,
-      packageIdentifiers: packages.map((pkg) => pkg.identifier),
-      productIdentifiers: packages.map((pkg) => pkg.product.identifier),
-    })
+    iapLog(
+      'step-8',
+      'getDefaultOfferingSafe result',
+      {
+        hasCurrent: !!current,
+        packagesCount: packages.length,
+        packageIdentifiers: packages.map((pkg) => pkg.identifier),
+        productIdentifiers: packages.map((pkg) => pkg.product.identifier),
+      },
+      debugLogger,
+    )
     console.log('[revenuecat] offerings fetched', { hasCurrent: !!current, count: Object.keys(offerings.all).length })
     return current
   } catch (error) {
-    iapError('step-8', 'getDefaultOfferingSafe failed', error)
+    iapError('step-8', 'getDefaultOfferingSafe failed', error, debugLogger)
     console.error('[revenuecat] getOfferings failed', error)
     return null
   }
@@ -119,82 +135,99 @@ function findPackageByEntitlement(offering: PurchasesOffering | null, entitlemen
   )
 }
 
-export async function purchaseIndex(indexType: AppIndexType): Promise<CustomerInfo | null> {
-  iapLog('step-7', 'purchaseIndex called', { indexType })
-  iapLog('step-7', 'indexType to entitlement mapping snapshot', INDEX_TO_ENTITLEMENT)
+export async function purchaseIndex(indexType: AppIndexType, debugLogger?: IapDebugLogger): Promise<CustomerInfo | null> {
+  iapLog('step-7', 'purchaseIndex called', { indexType }, debugLogger)
+  iapLog('step-7', 'indexType to entitlement mapping snapshot', INDEX_TO_ENTITLEMENT, debugLogger)
   const entitlementId = INDEX_TO_ENTITLEMENT[indexType]
   if (!entitlementId) {
-    iapLog('step-7', 'purchase skipped because selected index is free', { indexType })
+    iapLog('step-7', 'purchase skipped because selected index is free', { indexType }, debugLogger)
     console.log('[revenuecat] free index selected, purchase not required', { indexType })
-    return getCustomerInfoSafe()
+    return getCustomerInfoSafe(debugLogger)
   }
 
-  const ok = await configureRevenueCat()
+  const ok = await configureRevenueCat(debugLogger)
   if (!ok) {
-    iapLog('step-7', 'purchaseIndex aborted because configureRevenueCat failed', { indexType, entitlementId })
+    iapLog('step-7', 'purchaseIndex aborted because configureRevenueCat failed', { indexType, entitlementId }, debugLogger)
     return null
   }
 
   try {
-    const offering = await getDefaultOfferingSafe()
+    const offering = await getDefaultOfferingSafe(debugLogger)
     const packages = offering?.availablePackages ?? []
-    iapLog('step-8', 'default offering packages for purchase flow', {
-      indexType,
-      entitlementId,
-      packagesCount: packages.length,
-      packageIdentifiers: packages.map((pkg) => pkg.identifier),
-      productIdentifiers: packages.map((pkg) => pkg.product.identifier),
-    })
+    iapLog(
+      'step-8',
+      'default offering packages for purchase flow',
+      {
+        indexType,
+        entitlementId,
+        packagesCount: packages.length,
+        packageIdentifiers: packages.map((pkg) => pkg.identifier),
+        productIdentifiers: packages.map((pkg) => pkg.product.identifier),
+      },
+      debugLogger,
+    )
 
     const targetPackage = findPackageByEntitlement(offering, entitlementId)
     if (!targetPackage) {
-      iapLog('step-9', 'target package not found', { indexType, entitlementId })
+      iapLog('step-9', 'target package not found', { indexType, entitlementId }, debugLogger)
       console.error('[revenuecat] target package not found in default offering', { indexType, entitlementId })
-      return await getCustomerInfoSafe()
+      return await getCustomerInfoSafe(debugLogger)
     }
 
-    iapLog('step-9', 'target package resolved', {
-      indexType,
-      entitlementId,
-      packageIdentifier: targetPackage.identifier,
-      productIdentifier: targetPackage.product.identifier,
-    })
+    iapLog(
+      'step-9',
+      'target package resolved',
+      {
+        indexType,
+        entitlementId,
+        packageIdentifier: targetPackage.identifier,
+        productIdentifier: targetPackage.product.identifier,
+      },
+      debugLogger,
+    )
 
-    iapLog('step-10', 'calling purchasePackage', {
-      packageIdentifier: targetPackage.identifier,
-      productIdentifier: targetPackage.product.identifier,
-    })
+    iapLog(
+      'step-10',
+      'calling purchasePackage',
+      {
+        packageIdentifier: targetPackage.identifier,
+        productIdentifier: targetPackage.product.identifier,
+      },
+      debugLogger,
+    )
     await Purchases.purchasePackage(targetPackage)
-    iapLog('step-10', 'purchasePackage resolved successfully', { indexType, entitlementId })
+    iapLog('step-10', 'purchasePackage resolved successfully', { indexType, entitlementId }, debugLogger)
     console.log('[revenuecat] purchase success', { indexType, entitlementId })
   } catch (error: unknown) {
     const cancelled = typeof error === 'object' && error !== null && 'userCancelled' in error
       ? Boolean((error as { userCancelled?: boolean }).userCancelled)
       : false
     if (cancelled) {
-      iapLog('step-10', 'purchase cancelled by user', { indexType, entitlementId })
+      iapLog('step-10', 'purchase cancelled by user', { indexType, entitlementId }, debugLogger)
       console.log('[revenuecat] purchase cancelled', { indexType, entitlementId })
     } else {
-      iapError('step-10', 'purchase failed', error)
+      iapError('step-10', 'purchase failed', error, debugLogger)
       console.error('[revenuecat] purchase failed', { indexType, entitlementId, error })
     }
   }
 
-  return await getCustomerInfoSafe()
+  return await getCustomerInfoSafe(debugLogger)
 }
 
-export async function restorePurchasesSafe(): Promise<CustomerInfo | null> {
-  const ok = await configureRevenueCat()
+export async function restorePurchasesSafe(debugLogger?: IapDebugLogger): Promise<CustomerInfo | null> {
+  const ok = await configureRevenueCat(debugLogger)
   if (!ok) return null
 
   try {
     await Purchases.restorePurchases()
+    iapLog('step-r1', 'restore purchases success', undefined, debugLogger)
     console.log('[revenuecat] restore purchases success')
   } catch (error) {
+    iapError('step-r1', 'restore purchases failed', error, debugLogger)
     console.error('[revenuecat] restore purchases failed', error)
   }
 
-  return await getCustomerInfoSafe()
+  return await getCustomerInfoSafe(debugLogger)
 }
 
 export function buildEntitlementFlags(customerInfo: CustomerInfo | null): Record<string, boolean> {
