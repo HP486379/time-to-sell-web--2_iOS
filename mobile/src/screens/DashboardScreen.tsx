@@ -36,6 +36,18 @@ function debugLog(...args: unknown[]) {
   if (WEBVIEW_DEBUG) console.log('[dashboard-webview]', ...args)
 }
 
+function iapLog(step: string, message: string, payload?: unknown) {
+  if (payload === undefined) {
+    console.log(`[IAP] ${step} ${message}`)
+    return
+  }
+  console.log(`[IAP] ${step} ${message}`, payload)
+}
+
+function iapError(step: string, message: string, error: unknown) {
+  console.error(`[IAP] ${step} ${message}`, error)
+}
+
 function isAllowedInWebView(url: string): boolean {
   try {
     const parsed = new URL(url)
@@ -64,6 +76,7 @@ export function DashboardScreen() {
     const payload = JSON.stringify(entitlementFlags)
     return `
       (function () {
+        console.log('[IAP] step-1 web bridge injection started');
         var flags = ${payload};
         window.__TIMETOSELL_ENTITLEMENT__ = Object.assign(window.__TIMETOSELL_ENTITLEMENT__ || {}, flags);
         Object.keys(flags).forEach(function (key) {
@@ -71,11 +84,26 @@ export function DashboardScreen() {
         });
         window.__TIMETOSELL_NATIVE__ = window.__TIMETOSELL_NATIVE__ || {};
         window.__TIMETOSELL_NATIVE__.purchaseIndex = function(indexType) {
+          console.log('[IAP] step-2 window.__TIMETOSELL_NATIVE__.purchaseIndex called', { indexType: indexType });
+          if (!window.ReactNativeWebView) {
+            console.warn('[IAP] step-3 ReactNativeWebView bridge missing, PURCHASE_INDEX skipped');
+            return;
+          }
+          var message = JSON.stringify({ type: 'PURCHASE_INDEX', indexType: indexType });
+          console.log('[IAP] step-3 sending PURCHASE_INDEX message', message);
           window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'PURCHASE_INDEX', indexType: indexType }));
         };
         window.__TIMETOSELL_NATIVE__.restorePurchases = function() {
+          console.log('[IAP] step-2b window.__TIMETOSELL_NATIVE__.restorePurchases called');
+          if (!window.ReactNativeWebView) {
+            console.warn('[IAP] step-3b ReactNativeWebView bridge missing, RESTORE_PURCHASES skipped');
+            return;
+          }
+          var message = JSON.stringify({ type: 'RESTORE_PURCHASES' });
+          console.log('[IAP] step-3b sending RESTORE_PURCHASES message', message);
           window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'RESTORE_PURCHASES' }));
         };
+        console.log('[IAP] step-1 web bridge injection completed');
       })();
       true;
     `
@@ -97,19 +125,23 @@ export function DashboardScreen() {
 
   const syncRevenueCatState = useCallback(async () => {
     try {
+      iapLog('step-5', 'syncRevenueCatState started')
       const configured = await configureRevenueCat()
       if (!configured) {
+        iapLog('step-5', 'configureRevenueCat failed, fallback to free entitlements')
         console.error('[dashboard-webview] RevenueCat configure failed. fallback to free entitlements')
         setCustomerInfo(null)
         injectEntitlementsToCurrentPage(buildEntitlementFlags(null))
         return
       }
 
+      iapLog('step-5', 'configureRevenueCat succeeded')
       await getDefaultOfferingSafe()
       const info = await getCustomerInfoSafe()
       setCustomerInfo(info)
       injectEntitlementsToCurrentPage(buildEntitlementFlags(info))
     } catch (error) {
+      iapError('step-5', 'syncRevenueCatState failed', error)
       console.error('[dashboard-webview] syncRevenueCatState failed', error)
       setCustomerInfo(null)
       injectEntitlementsToCurrentPage(buildEntitlementFlags(null))
@@ -133,9 +165,23 @@ export function DashboardScreen() {
 
   const handleWebViewMessage = useCallback(async (event: WebViewMessageEvent) => {
     try {
+      const rawData = event.nativeEvent.data ?? ''
+      iapLog('step-4', 'WebView message received (raw)', rawData)
+      if (!rawData) {
+        iapLog('step-4', 'WebView message skipped because raw data is empty')
+        return
+      }
+
+      // IAP停止点の切り分けメモ:
+      // - step-2/3 が出ない: Web側から purchaseIndex 呼び出し未到達 or bridge未生成。
+      // - step-4 が出ない: WebView postMessage 未送信。
+      // - step-6 以降が出ない: PURCHASE_INDEX 以外のmessage/パース失敗。
+      // - step-8 以降が出ない: RevenueCat設定やoffering/package解決で停止。
       const data = JSON.parse(event.nativeEvent.data ?? '{}') as { type?: string; indexType?: AppIndexType }
       if (data.type === 'PURCHASE_INDEX' && data.indexType) {
+        iapLog('step-6', 'PURCHASE_INDEX received', data)
         const nextInfo = await purchaseIndex(data.indexType)
+        iapLog('step-10', 'purchaseIndex resolved', { indexType: data.indexType, hasCustomerInfo: !!nextInfo })
         setCustomerInfo(nextInfo)
         const flags = buildEntitlementFlags(nextInfo)
         injectEntitlementsToCurrentPage(flags)
@@ -147,6 +193,7 @@ export function DashboardScreen() {
           })} })); true;`,
         )
       } else if (data.type === 'RESTORE_PURCHASES') {
+        iapLog('step-6b', 'RESTORE_PURCHASES received', data)
         const nextInfo = await restorePurchasesSafe()
         setCustomerInfo(nextInfo)
         const flags = buildEntitlementFlags(nextInfo)
@@ -154,8 +201,11 @@ export function DashboardScreen() {
         webRef.current?.injectJavaScript(
           `window.dispatchEvent(new CustomEvent('${RESTORE_EVENT_NAME}', { detail: ${JSON.stringify({ ok: true })} })); true;`,
         )
+      } else {
+        iapLog('step-6', 'message ignored because type/indexType did not match purchase flow', data)
       }
     } catch (error) {
+      iapError('step-4', 'message handling failed', error)
       console.error('[dashboard-webview] message handling failed', error)
     }
   }, [injectEntitlementsToCurrentPage])
