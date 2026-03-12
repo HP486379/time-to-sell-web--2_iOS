@@ -24,9 +24,25 @@ export const INDEX_TO_ENTITLEMENT: Record<AppIndexType, EntitlementId | null> = 
 
 let configured = false
 
+function iapLog(step: string, message: string, payload?: unknown) {
+  if (payload === undefined) {
+    console.log(`[IAP] ${step} ${message}`)
+    return
+  }
+  console.log(`[IAP] ${step} ${message}`, payload)
+}
+
+function iapError(step: string, message: string, error: unknown) {
+  console.error(`[IAP] ${step} ${message}`, error)
+}
+
 export async function configureRevenueCat(): Promise<boolean> {
-  if (configured) return true
+  if (configured) {
+    iapLog('step-7', 'configureRevenueCat skipped because already configured')
+    return true
+  }
   if (!IOS_PUBLIC_SDK_KEY) {
+    iapLog('step-7', 'configureRevenueCat failed because key is missing')
     console.error('[revenuecat] revenuecatPublicApiKey is missing in app.json (expo.extra.revenuecatPublicApiKey)')
     return false
   }
@@ -38,11 +54,14 @@ export async function configureRevenueCat(): Promise<boolean> {
   }
 
   try {
+    iapLog('step-7', 'configureRevenueCat start', { keyPrefix })
     await Purchases.configure({ apiKey: IOS_PUBLIC_SDK_KEY })
     configured = true
+    iapLog('step-7', 'configureRevenueCat success')
     console.log('[revenuecat] configured successfully')
     return true
   } catch (error) {
+    iapError('step-7', 'configureRevenueCat failed', error)
     console.error('[revenuecat] configure failed', error)
     return false
   }
@@ -61,13 +80,25 @@ export async function getCustomerInfoSafe(): Promise<CustomerInfo | null> {
 
 export async function getDefaultOfferingSafe(): Promise<PurchasesOffering | null> {
   const ok = await configureRevenueCat()
-  if (!ok) return null
+  if (!ok) {
+    iapLog('step-8', 'getDefaultOfferingSafe skipped because configureRevenueCat failed')
+    return null
+  }
   try {
+    iapLog('step-8', 'getDefaultOfferingSafe start')
     const offerings = await Purchases.getOfferings()
     const current = offerings.current ?? null
+    const packages = current?.availablePackages ?? []
+    iapLog('step-8', 'getDefaultOfferingSafe result', {
+      hasCurrent: !!current,
+      packagesCount: packages.length,
+      packageIdentifiers: packages.map((pkg) => pkg.identifier),
+      productIdentifiers: packages.map((pkg) => pkg.product.identifier),
+    })
     console.log('[revenuecat] offerings fetched', { hasCurrent: !!current, count: Object.keys(offerings.all).length })
     return current
   } catch (error) {
+    iapError('step-8', 'getDefaultOfferingSafe failed', error)
     console.error('[revenuecat] getOfferings failed', error)
     return null
   }
@@ -89,32 +120,62 @@ function findPackageByEntitlement(offering: PurchasesOffering | null, entitlemen
 }
 
 export async function purchaseIndex(indexType: AppIndexType): Promise<CustomerInfo | null> {
+  iapLog('step-7', 'purchaseIndex called', { indexType })
+  iapLog('step-7', 'indexType to entitlement mapping snapshot', INDEX_TO_ENTITLEMENT)
   const entitlementId = INDEX_TO_ENTITLEMENT[indexType]
   if (!entitlementId) {
+    iapLog('step-7', 'purchase skipped because selected index is free', { indexType })
     console.log('[revenuecat] free index selected, purchase not required', { indexType })
     return getCustomerInfoSafe()
   }
 
   const ok = await configureRevenueCat()
-  if (!ok) return null
+  if (!ok) {
+    iapLog('step-7', 'purchaseIndex aborted because configureRevenueCat failed', { indexType, entitlementId })
+    return null
+  }
 
   try {
     const offering = await getDefaultOfferingSafe()
+    const packages = offering?.availablePackages ?? []
+    iapLog('step-8', 'default offering packages for purchase flow', {
+      indexType,
+      entitlementId,
+      packagesCount: packages.length,
+      packageIdentifiers: packages.map((pkg) => pkg.identifier),
+      productIdentifiers: packages.map((pkg) => pkg.product.identifier),
+    })
+
     const targetPackage = findPackageByEntitlement(offering, entitlementId)
     if (!targetPackage) {
+      iapLog('step-9', 'target package not found', { indexType, entitlementId })
       console.error('[revenuecat] target package not found in default offering', { indexType, entitlementId })
       return await getCustomerInfoSafe()
     }
 
+    iapLog('step-9', 'target package resolved', {
+      indexType,
+      entitlementId,
+      packageIdentifier: targetPackage.identifier,
+      productIdentifier: targetPackage.product.identifier,
+    })
+
+    iapLog('step-10', 'calling purchasePackage', {
+      packageIdentifier: targetPackage.identifier,
+      productIdentifier: targetPackage.product.identifier,
+    })
     await Purchases.purchasePackage(targetPackage)
+    iapLog('step-10', 'purchasePackage resolved successfully', { indexType, entitlementId })
     console.log('[revenuecat] purchase success', { indexType, entitlementId })
   } catch (error: unknown) {
     const cancelled = typeof error === 'object' && error !== null && 'userCancelled' in error
       ? Boolean((error as { userCancelled?: boolean }).userCancelled)
       : false
     if (cancelled) {
+      iapLog('step-10', 'purchase cancelled by user', { indexType, entitlementId })
       console.log('[revenuecat] purchase cancelled', { indexType, entitlementId })
     } else {
+      iapError('step-10', 'purchase failed', error)
       console.error('[revenuecat] purchase failed', { indexType, entitlementId, error })
     }
   }
