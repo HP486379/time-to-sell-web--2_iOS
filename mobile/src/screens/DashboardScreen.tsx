@@ -107,11 +107,18 @@ export function DashboardScreen() {
         window.__TIMETOSELL_NATIVE__.purchaseIndex = function(indexType) {
           emitIapDebug('step-2', 'window.__TIMETOSELL_NATIVE__.purchaseIndex called', { indexType: indexType });
           if (!window.ReactNativeWebView) {
+            emitIapDebug('step-3', 'PURCHASE_INDEX skipped because ReactNativeWebView is missing');
             return;
           }
-          var message = JSON.stringify({ type: 'PURCHASE_INDEX', indexType: indexType });
-          emitIapDebug('step-3', 'sending PURCHASE_INDEX message', message);
-          window.ReactNativeWebView.postMessage(message);
+          try {
+            var purchasePayload = { type: 'PURCHASE_INDEX', indexType };
+            var message = JSON.stringify(purchasePayload);
+            emitIapDebug('step-3', 'before PURCHASE_INDEX postMessage', purchasePayload);
+            window.ReactNativeWebView.postMessage(message);
+            emitIapDebug('step-3', 'after PURCHASE_INDEX postMessage', message);
+          } catch (error) {
+            emitIapDebug('step-3', 'PURCHASE_INDEX postMessage failed', String(error && error.message ? error.message : error));
+          }
         };
         window.__TIMETOSELL_NATIVE__.restorePurchases = function() {
           emitIapDebug('step-2b', 'window.__TIMETOSELL_NATIVE__.restorePurchases called');
