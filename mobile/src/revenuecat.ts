@@ -22,6 +22,8 @@ export const INDEX_TO_ENTITLEMENT: Record<AppIndexType, EntitlementId | null> = 
   orukan_jpy: 'allcountry_jpy',
 }
 
+const INDEX_TO_PRODUCT_ID = (Constants.expoConfig?.extra?.revenuecatProductIds ?? {}) as Partial<Record<AppIndexType, string>>
+
 export type IapDebugLogger = (line: string) => void
 
 let configured = false
@@ -127,17 +129,48 @@ export function isIndexUnlocked(indexType: AppIndexType, customerInfo: CustomerI
   return !!customerInfo.entitlements.active[entitlementId]
 }
 
-function findPackageByEntitlement(offering: PurchasesOffering | null, entitlementId: EntitlementId): PurchasesPackage | null {
+function findPackageForIndex(
+  offering: PurchasesOffering | null,
+  indexType: AppIndexType,
+  entitlementId: EntitlementId,
+  debugLogger?: IapDebugLogger,
+): PurchasesPackage | null {
   if (!offering) return null
-  return (
-    offering.availablePackages.find((pkg) => pkg.product.identifier === entitlementId || pkg.identifier === entitlementId) ??
-    null
-  )
+
+  const targetProductId = INDEX_TO_PRODUCT_ID[indexType]
+  if (targetProductId) {
+    const byProductId = offering.availablePackages.find((pkg) => pkg.product.identifier === targetProductId) ?? null
+    iapLog('step-9', 'product id mapping lookup', { indexType, targetProductId, found: !!byProductId }, debugLogger)
+    if (byProductId) return byProductId
+  }
+
+  const byEntitlement =
+    offering.availablePackages.find((pkg) => pkg.product.identifier === entitlementId || pkg.identifier === entitlementId) ?? null
+  if (byEntitlement) return byEntitlement
+
+  if (offering.availablePackages.length === 1) {
+    const fallbackPackage = offering.availablePackages[0]
+    iapLog(
+      'step-9',
+      'fallback to single available package',
+      {
+        indexType,
+        entitlementId,
+        packageIdentifier: fallbackPackage.identifier,
+        productIdentifier: fallbackPackage.product.identifier,
+      },
+      debugLogger,
+    )
+    return fallbackPackage
+  }
+
+  return null
 }
 
 export async function purchaseIndex(indexType: AppIndexType, debugLogger?: IapDebugLogger): Promise<CustomerInfo | null> {
   iapLog('step-7', 'purchaseIndex called', { indexType }, debugLogger)
   iapLog('step-7', 'indexType to entitlement mapping snapshot', INDEX_TO_ENTITLEMENT, debugLogger)
+  iapLog('step-7', 'indexType to productId mapping snapshot', INDEX_TO_PRODUCT_ID, debugLogger)
   const entitlementId = INDEX_TO_ENTITLEMENT[indexType]
   if (!entitlementId) {
     iapLog('step-7', 'purchase skipped because selected index is free', { indexType }, debugLogger)
@@ -167,7 +200,7 @@ export async function purchaseIndex(indexType: AppIndexType, debugLogger?: IapDe
       debugLogger,
     )
 
-    const targetPackage = findPackageByEntitlement(offering, entitlementId)
+    const targetPackage = findPackageForIndex(offering, indexType, entitlementId, debugLogger)
     if (!targetPackage) {
       iapLog('step-9', 'target package not found', { indexType, entitlementId }, debugLogger)
       console.error('[revenuecat] target package not found in default offering', { indexType, entitlementId })
