@@ -236,6 +236,27 @@ export async function purchaseIndex(indexType: AppIndexType, debugLogger?: IapDe
       return await getCustomerInfoSafe(debugLogger)
     }
 
+    iapLog(
+      'step-9',
+      'target package resolved',
+      {
+        indexType,
+        entitlementId,
+        packageIdentifier: targetPackage.identifier,
+        productIdentifier: targetPackage.product.identifier,
+      },
+      debugLogger,
+    )
+
+    iapLog(
+      'step-10',
+      'calling purchasePackage',
+      {
+        packageIdentifier: targetPackage.identifier,
+        productIdentifier: targetPackage.product.identifier,
+      },
+      debugLogger,
+    )
     await Purchases.purchasePackage(targetPackage)
     iapLog('step-10', 'purchasePackage resolved successfully', { indexType, entitlementId }, debugLogger)
     console.log('[revenuecat] purchase success', { indexType, entitlementId })
