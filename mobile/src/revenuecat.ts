@@ -51,6 +51,11 @@ const INDEX_TO_PRODUCT_ID = (runtimeExtra.revenuecatProductIds ?? {}) as Partial
 export type IapDebugLogger = (line: string) => void
 
 let configured = false
+let firstConfigureCallsite: string | null = null
+let firstConfigureKeySource: string | null = null
+let firstConfigureKeyPrefix: string | null = null
+let firstConfigureKeySuffix: string | null = null
+const REVENUECAT_CONFIGURE_CALLSITE = 'mobile/src/revenuecat.ts:configureRevenueCat'
 
 function formatErrorMessage(error: unknown): string {
   if (error instanceof Error) return error.message
@@ -58,6 +63,14 @@ function formatErrorMessage(error: unknown): string {
     return String((error as { message?: unknown }).message)
   }
   return String(error)
+}
+
+function keyPrefix4(value: string): string {
+  return value.slice(0, 4)
+}
+
+function keySuffix4(value: string): string {
+  return value.slice(-4)
 }
 
 function iapLog(step: string, message: string, payload?: unknown, debugLogger?: IapDebugLogger) {
@@ -74,7 +87,18 @@ function iapError(step: string, message: string, error: unknown, debugLogger?: I
 
 export async function configureRevenueCat(debugLogger?: IapDebugLogger): Promise<boolean> {
   if (configured) {
-    iapLog('step-7', 'configureRevenueCat skipped because already configured', undefined, debugLogger)
+    iapLog(
+      'step-7',
+      'configureRevenueCat skipped because already configured',
+      {
+        firstConfigureCallsite,
+        resolvedKeySource: firstConfigureKeySource,
+        resolvedKeyPrefix: firstConfigureKeyPrefix,
+        resolvedKeySuffix: firstConfigureKeySuffix,
+        alreadyConfiguredBeforeCall: true,
+      },
+      debugLogger,
+    )
     // RevenueCat is already initialized, so treat this path as success to keep purchase flow running.
     return true
   }
@@ -127,15 +151,44 @@ export async function configureRevenueCat(debugLogger?: IapDebugLogger): Promise
   }
 
   iapLog('step-7', 'resolved iOS SDK key state', { isEmpty: false, source: IOS_PUBLIC_SDK_KEY_SOURCE }, debugLogger)
-  const keyPrefix = IOS_PUBLIC_SDK_KEY.slice(0, 5)
-  console.log('[revenuecat] key prefix:', keyPrefix)
-  if (keyPrefix !== 'appl_') {
+  const keyPrefix = keyPrefix4(IOS_PUBLIC_SDK_KEY)
+  const keySuffix = keySuffix4(IOS_PUBLIC_SDK_KEY)
+  console.log('[revenuecat] key prefix/suffix:', { keyPrefix, keySuffix })
+  if (!IOS_PUBLIC_SDK_KEY.startsWith('appl_')) {
     console.warn('[revenuecat] key prefix is not appl_ (please verify iOS Public SDK Key)')
   }
 
   try {
+    iapLog(
+      'step-7',
+      'Purchases.configure about to execute',
+      {
+        firstConfigureCallsite: REVENUECAT_CONFIGURE_CALLSITE,
+        resolvedKeySource: IOS_PUBLIC_SDK_KEY_SOURCE,
+        resolvedKeyPrefix: keyPrefix,
+        resolvedKeySuffix: keySuffix,
+        alreadyConfiguredBeforeCall: configured,
+      },
+      debugLogger,
+    )
     iapLog('step-7', 'configureRevenueCat start', { keyPrefix, source: IOS_PUBLIC_SDK_KEY_SOURCE }, debugLogger)
     await Purchases.configure({ apiKey: IOS_PUBLIC_SDK_KEY })
+    firstConfigureCallsite = REVENUECAT_CONFIGURE_CALLSITE
+    firstConfigureKeySource = IOS_PUBLIC_SDK_KEY_SOURCE
+    firstConfigureKeyPrefix = keyPrefix
+    firstConfigureKeySuffix = keySuffix
+    iapLog(
+      'step-7',
+      'configured=true will be set after successful Purchases.configure',
+      {
+        firstConfigureCallsite,
+        resolvedKeySource: firstConfigureKeySource,
+        resolvedKeyPrefix: firstConfigureKeyPrefix,
+        resolvedKeySuffix: firstConfigureKeySuffix,
+        alreadyConfiguredBeforeCall: false,
+      },
+      debugLogger,
+    )
     configured = true
     iapLog('step-7', 'configureRevenueCat success', undefined, debugLogger)
     console.log('[revenuecat] configured successfully')
