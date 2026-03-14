@@ -1,9 +1,31 @@
 import Constants from 'expo-constants'
 import Purchases, { type CustomerInfo, type PurchasesOffering, type PurchasesPackage } from 'react-native-purchases'
 
+const constantsWithLegacyManifest = Constants as typeof Constants & {
+  manifest?: { extra?: Record<string, unknown> }
+}
+
+const runtimeExtra =
+  (Constants.expoConfig?.extra as Record<string, unknown> | undefined) ??
+  constantsWithLegacyManifest.manifest?.extra ??
+  {}
+
+const IOS_PUBLIC_SDK_KEY_CANDIDATES = {
+  expoConfigExtra: (Constants.expoConfig?.extra as { revenuecatPublicApiKey?: unknown } | undefined)?.revenuecatPublicApiKey,
+  manifestExtra: (constantsWithLegacyManifest.manifest?.extra as { revenuecatPublicApiKey?: unknown } | undefined)?.revenuecatPublicApiKey,
+} as const
+
 const IOS_PUBLIC_SDK_KEY =
-  (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env
-    ?.EXPO_PUBLIC_REVENUECAT_IOS_API_KEY ?? ''
+  (typeof IOS_PUBLIC_SDK_KEY_CANDIDATES.expoConfigExtra === 'string' && IOS_PUBLIC_SDK_KEY_CANDIDATES.expoConfigExtra) ||
+  (typeof IOS_PUBLIC_SDK_KEY_CANDIDATES.manifestExtra === 'string' && IOS_PUBLIC_SDK_KEY_CANDIDATES.manifestExtra) ||
+  ''
+
+const IOS_PUBLIC_SDK_KEY_SOURCE =
+  typeof IOS_PUBLIC_SDK_KEY_CANDIDATES.expoConfigExtra === 'string' && IOS_PUBLIC_SDK_KEY_CANDIDATES.expoConfigExtra
+    ? 'expoConfig.extra.revenuecatPublicApiKey'
+    : typeof IOS_PUBLIC_SDK_KEY_CANDIDATES.manifestExtra === 'string' && IOS_PUBLIC_SDK_KEY_CANDIDATES.manifestExtra
+      ? 'manifest.extra.revenuecatPublicApiKey'
+      : 'none'
 
 export type AppIndexType = 'SP500' | 'sp500_jpy' | 'TOPIX' | 'NIKKEI' | 'NIFTY50' | 'ORUKAN' | 'orukan_jpy'
 export type EntitlementId =
@@ -24,7 +46,7 @@ export const INDEX_TO_ENTITLEMENT: Record<AppIndexType, EntitlementId | null> = 
   orukan_jpy: 'allcountry_jpy',
 }
 
-const INDEX_TO_PRODUCT_ID = (Constants.expoConfig?.extra?.revenuecatProductIds ?? {}) as Partial<Record<AppIndexType, string>>
+const INDEX_TO_PRODUCT_ID = (runtimeExtra.revenuecatProductIds ?? {}) as Partial<Record<AppIndexType, string>>
 
 export type IapDebugLogger = (line: string) => void
 
@@ -60,8 +82,14 @@ export async function configureRevenueCat(debugLogger?: IapDebugLogger): Promise
   const productIdKeys = Object.keys(INDEX_TO_PRODUCT_ID)
   iapLog('step-7', 'resolved revenuecat config state', {
     revenuecatPublicApiKeyEmpty: !IOS_PUBLIC_SDK_KEY,
+    revenuecatPublicApiKeySource: IOS_PUBLIC_SDK_KEY_SOURCE,
+    revenuecatPublicApiKeyPrefix: IOS_PUBLIC_SDK_KEY ? IOS_PUBLIC_SDK_KEY.slice(0, 5) : null,
     revenuecatProductIdsEmpty: productIdKeys.length === 0,
     revenuecatProductIdKeys: productIdKeys,
+    candidatePathHasValue: {
+      expoConfigExtra: typeof IOS_PUBLIC_SDK_KEY_CANDIDATES.expoConfigExtra === 'string' && IOS_PUBLIC_SDK_KEY_CANDIDATES.expoConfigExtra.length > 0,
+      manifestExtra: typeof IOS_PUBLIC_SDK_KEY_CANDIDATES.manifestExtra === 'string' && IOS_PUBLIC_SDK_KEY_CANDIDATES.manifestExtra.length > 0,
+    },
   }, debugLogger)
 
   iapLog(
@@ -82,16 +110,23 @@ export async function configureRevenueCat(debugLogger?: IapDebugLogger): Promise
       'configureRevenueCat returning false',
       {
         reason: 'missing_ios_public_sdk_key',
-        apiKeyResolved: IOS_PUBLIC_SDK_KEY,
-        apiKeyLength: IOS_PUBLIC_SDK_KEY.length,
+        revenuecatPublicApiKeySource: IOS_PUBLIC_SDK_KEY_SOURCE,
+        candidatePathUndefined: {
+          expoConfigExtra: IOS_PUBLIC_SDK_KEY_CANDIDATES.expoConfigExtra === undefined,
+          manifestExtra: IOS_PUBLIC_SDK_KEY_CANDIDATES.manifestExtra === undefined,
+        },
+        candidatePathType: {
+          expoConfigExtra: typeof IOS_PUBLIC_SDK_KEY_CANDIDATES.expoConfigExtra,
+          manifestExtra: typeof IOS_PUBLIC_SDK_KEY_CANDIDATES.manifestExtra,
+        },
       },
       debugLogger,
     )
-    console.error('[revenuecat] revenuecatPublicApiKey is missing in app config extra')
+    console.error('[revenuecat] revenuecatPublicApiKey is missing in expoConfig.extra/manifest.extra')
     return false
   }
 
-  iapLog('step-7', 'resolved iOS SDK key state', { isEmpty: false, key: IOS_PUBLIC_SDK_KEY }, debugLogger)
+  iapLog('step-7', 'resolved iOS SDK key state', { isEmpty: false, source: IOS_PUBLIC_SDK_KEY_SOURCE }, debugLogger)
   const keyPrefix = IOS_PUBLIC_SDK_KEY.slice(0, 5)
   console.log('[revenuecat] key prefix:', keyPrefix)
   if (keyPrefix !== 'appl_') {
@@ -99,7 +134,7 @@ export async function configureRevenueCat(debugLogger?: IapDebugLogger): Promise
   }
 
   try {
-    iapLog('step-7', 'configureRevenueCat start', { keyPrefix, apiKey: IOS_PUBLIC_SDK_KEY }, debugLogger)
+    iapLog('step-7', 'configureRevenueCat start', { keyPrefix, source: IOS_PUBLIC_SDK_KEY_SOURCE }, debugLogger)
     await Purchases.configure({ apiKey: IOS_PUBLIC_SDK_KEY })
     configured = true
     iapLog('step-7', 'configureRevenueCat success', undefined, debugLogger)
