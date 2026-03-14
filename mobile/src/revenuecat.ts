@@ -240,14 +240,6 @@ export async function purchaseIndex(indexType: AppIndexType, debugLogger?: IapDe
       },
       debugLogger,
     )
-
-    const canMakePaymentsResult = await Purchases.canMakePayments()
-    iapLog('step-10', 'canMakePayments result', { canMakePayments: canMakePaymentsResult }, debugLogger)
-    if (!canMakePaymentsResult) {
-      iapError('step-10', 'purchase blocked because canMakePayments=false', new Error('StoreKit payments are disabled on this device/account'), debugLogger)
-      return await getCustomerInfoSafe(debugLogger)
-    }
-
     iapLog(
       'step-9',
       'target package resolved',
