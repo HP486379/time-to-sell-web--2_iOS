@@ -2,15 +2,10 @@
 import { useEffect, useMemo, useState, useCallback } from "react";
 import Purchases, { CustomerInfo, PurchasesPackage } from "react-native-purchases";
 import Constants from "expo-constants";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 
 type RevenueCatConfig = {
   iosApiKey: string;
   entitlementId: string; // e.g. "nikkei_unlock"
-};
-
-const STORAGE_KEYS = {
-  appUserId: "tts_user_id",
 };
 
 function getRevenueCatConfig(): RevenueCatConfig {
@@ -25,16 +20,6 @@ function getRevenueCatConfig(): RevenueCatConfig {
     iosApiKey: rc.iosApiKey,
     entitlementId: rc.entitlementId,
   };
-}
-
-async function getOrCreateAppUserId(): Promise<string> {
-  const existing = await AsyncStorage.getItem(STORAGE_KEYS.appUserId);
-  if (existing) return existing;
-
-  // ランダムID生成（UUIDライブラリ無しで十分）
-  const newId = `tts_${Date.now()}_${Math.random().toString(16).slice(2)}`;
-  await AsyncStorage.setItem(STORAGE_KEYS.appUserId, newId);
-  return newId;
 }
 
 function hasEntitlement(info: CustomerInfo | null, entitlementId: string): boolean {
@@ -66,10 +51,7 @@ export function usePurchases() {
 
     (async () => {
       try {
-        const appUserId = await getOrCreateAppUserId();
-
-        // ここが「RevenueCat API Key」を入れる場所
-        await Purchases.configure({ apiKey: iosApiKey, appUserID: appUserId });
+        // RevenueCat の configure は revenuecat.ts 側で一元管理する
 
         // CustomerInfo更新イベント
         const listener = Purchases.addCustomerInfoUpdateListener((info) => {
@@ -83,9 +65,6 @@ export function usePurchases() {
         setIsReady(true);
         setError(null);
 
-        return () => {
-          listener?.remove?.();
-        };
       } catch (e: any) {
         if (!mounted) return;
         setError(e?.message ?? String(e));

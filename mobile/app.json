@@ -28,7 +28,15 @@
       "eas": {
         "projectId": "6565316a-da68-4256-acc2-6f1fc6d7cb22"
       },
-      "revenuecatPublicApiKey": "appl_ilrqCVUnBSmqLX0tieXdcILBnSI"
+      "revenuecatPublicApiKey": "appl_iIrqCVUnBSmqLX0tieXdcILBnSI",
+      "revenuecatProductIds": {
+        "sp500_jpy": "sp500_jpy",
+        "TOPIX": "topix",
+        "NIKKEI": "nikkei225",
+        "NIFTY50": "nifty50",
+        "ORUKAN": "allcountry",
+        "orukan_jpy": "allcountry_jpy"
+      }
     },
     "android": {
       "package": "com.timetosell.mobile"

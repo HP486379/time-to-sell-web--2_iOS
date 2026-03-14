@@ -55,10 +55,18 @@ export async function configureRevenueCat(debugLogger?: IapDebugLogger): Promise
     iapLog('step-7', 'configureRevenueCat skipped because already configured', undefined, debugLogger)
     return true
   }
+
+  const productIdKeys = Object.keys(INDEX_TO_PRODUCT_ID)
+  iapLog('step-7', 'resolved revenuecat config state', {
+    revenuecatPublicApiKeyEmpty: !IOS_PUBLIC_SDK_KEY,
+    revenuecatProductIdsEmpty: productIdKeys.length === 0,
+    revenuecatProductIdKeys: productIdKeys,
+  }, debugLogger)
+
   if (!IOS_PUBLIC_SDK_KEY) {
     iapLog('step-7', 'resolved iOS SDK key is empty', { isEmpty: true }, debugLogger)
     iapLog('step-7', 'configureRevenueCat failed because key is missing', undefined, debugLogger)
-    console.error('[revenuecat] EXPO_PUBLIC_REVENUECAT_IOS_API_KEY is missing')
+    console.error('[revenuecat] revenuecatPublicApiKey is missing in app config extra')
     return false
   }
 
@@ -208,6 +216,35 @@ export async function purchaseIndex(indexType: AppIndexType, debugLogger?: IapDe
     if (!targetPackage) {
       iapLog('step-9', 'target package not found', { indexType, entitlementId }, debugLogger)
       console.error('[revenuecat] target package not found in default offering', { indexType, entitlementId })
+      return await getCustomerInfoSafe(debugLogger)
+    }
+
+    iapLog(
+      'step-9',
+      'target package resolved',
+      {
+        indexType,
+        entitlementId,
+        packageIdentifier: targetPackage.identifier,
+        productIdentifier: targetPackage.product.identifier,
+      },
+      debugLogger,
+    )
+
+    iapLog(
+      'step-10',
+      'calling purchasePackage',
+      {
+        packageIdentifier: targetPackage.identifier,
+        productIdentifier: targetPackage.product.identifier,
+      },
+      debugLogger,
+    )
+
+    const canMakePaymentsResult = await Purchases.canMakePayments()
+    iapLog('step-10', 'canMakePayments result', { canMakePayments: canMakePaymentsResult }, debugLogger)
+    if (!canMakePaymentsResult) {
+      iapError('step-10', 'purchase blocked because canMakePayments=false', new Error('StoreKit payments are disabled on this device/account'), debugLogger)
       return await getCustomerInfoSafe(debugLogger)
     }
 
