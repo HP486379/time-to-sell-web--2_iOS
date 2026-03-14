@@ -1,7 +1,9 @@
 import Constants from 'expo-constants'
 import Purchases, { type CustomerInfo, type PurchasesOffering, type PurchasesPackage } from 'react-native-purchases'
 
-const IOS_PUBLIC_SDK_KEY = Constants.expoConfig?.extra?.revenuecatPublicApiKey ?? ''
+const IOS_PUBLIC_SDK_KEY =
+  (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env
+    ?.EXPO_PUBLIC_REVENUECAT_IOS_API_KEY ?? ''
 
 export type AppIndexType = 'SP500' | 'sp500_jpy' | 'TOPIX' | 'NIKKEI' | 'NIFTY50' | 'ORUKAN' | 'orukan_jpy'
 export type EntitlementId =
@@ -54,11 +56,13 @@ export async function configureRevenueCat(debugLogger?: IapDebugLogger): Promise
     return true
   }
   if (!IOS_PUBLIC_SDK_KEY) {
+    iapLog('step-7', 'resolved iOS SDK key is empty', { isEmpty: true }, debugLogger)
     iapLog('step-7', 'configureRevenueCat failed because key is missing', undefined, debugLogger)
-    console.error('[revenuecat] revenuecatPublicApiKey is missing in app.json (expo.extra.revenuecatPublicApiKey)')
+    console.error('[revenuecat] EXPO_PUBLIC_REVENUECAT_IOS_API_KEY is missing')
     return false
   }
 
+  iapLog('step-7', 'resolved iOS SDK key state', { isEmpty: false, key: IOS_PUBLIC_SDK_KEY }, debugLogger)
   const keyPrefix = IOS_PUBLIC_SDK_KEY.slice(0, 5)
   console.log('[revenuecat] key prefix:', keyPrefix)
   if (keyPrefix !== 'appl_') {
@@ -66,7 +70,7 @@ export async function configureRevenueCat(debugLogger?: IapDebugLogger): Promise
   }
 
   try {
-    iapLog('step-7', 'configureRevenueCat start', { keyPrefix }, debugLogger)
+    iapLog('step-7', 'configureRevenueCat start', { keyPrefix, apiKey: IOS_PUBLIC_SDK_KEY }, debugLogger)
     await Purchases.configure({ apiKey: IOS_PUBLIC_SDK_KEY })
     configured = true
     iapLog('step-7', 'configureRevenueCat success', undefined, debugLogger)
@@ -204,6 +208,35 @@ export async function purchaseIndex(indexType: AppIndexType, debugLogger?: IapDe
     if (!targetPackage) {
       iapLog('step-9', 'target package not found', { indexType, entitlementId }, debugLogger)
       console.error('[revenuecat] target package not found in default offering', { indexType, entitlementId })
+      return await getCustomerInfoSafe(debugLogger)
+    }
+
+    iapLog(
+      'step-9',
+      'target package resolved',
+      {
+        indexType,
+        entitlementId,
+        packageIdentifier: targetPackage.identifier,
+        productIdentifier: targetPackage.product.identifier,
+      },
+      debugLogger,
+    )
+
+    iapLog(
+      'step-10',
+      'calling purchasePackage',
+      {
+        packageIdentifier: targetPackage.identifier,
+        productIdentifier: targetPackage.product.identifier,
+      },
+      debugLogger,
+    )
+
+    const canMakePayments = await Purchases.canMakePayments()
+    iapLog('step-10', 'canMakePayments result', { canMakePayments }, debugLogger)
+    if (!canMakePayments) {
+      iapError('step-10', 'purchase blocked because canMakePayments=false', new Error('StoreKit payments are disabled on this device/account'), debugLogger)
       return await getCustomerInfoSafe(debugLogger)
     }
 
