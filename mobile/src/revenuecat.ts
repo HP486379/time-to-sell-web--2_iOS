@@ -53,6 +53,7 @@ function iapError(step: string, message: string, error: unknown, debugLogger?: I
 export async function configureRevenueCat(debugLogger?: IapDebugLogger): Promise<boolean> {
   if (configured) {
     iapLog('step-7', 'configureRevenueCat skipped because already configured', undefined, debugLogger)
+    // RevenueCat is already initialized, so treat this path as success to keep purchase flow running.
     return true
   }
 
@@ -63,9 +64,29 @@ export async function configureRevenueCat(debugLogger?: IapDebugLogger): Promise
     revenuecatProductIdKeys: productIdKeys,
   }, debugLogger)
 
+  iapLog(
+    'step-7',
+    'configureRevenueCat success/failure criteria',
+    {
+      successConditions: ['already configured', 'api key exists and Purchases.configure succeeds'],
+      failureConditions: ['api key missing', 'Purchases.configure throws'],
+    },
+    debugLogger,
+  )
+
   if (!IOS_PUBLIC_SDK_KEY) {
     iapLog('step-7', 'resolved iOS SDK key is empty', { isEmpty: true }, debugLogger)
     iapLog('step-7', 'configureRevenueCat failed because key is missing', undefined, debugLogger)
+    iapLog(
+      'step-7',
+      'configureRevenueCat returning false',
+      {
+        reason: 'missing_ios_public_sdk_key',
+        apiKeyResolved: IOS_PUBLIC_SDK_KEY,
+        apiKeyLength: IOS_PUBLIC_SDK_KEY.length,
+      },
+      debugLogger,
+    )
     console.error('[revenuecat] revenuecatPublicApiKey is missing in app config extra')
     return false
   }
@@ -86,6 +107,16 @@ export async function configureRevenueCat(debugLogger?: IapDebugLogger): Promise
     return true
   } catch (error) {
     iapError('step-7', 'configureRevenueCat failed', error, debugLogger)
+    iapLog(
+      'step-7',
+      'configureRevenueCat returning false',
+      {
+        reason: 'purchases_configure_threw',
+        apiKeyPrefix: keyPrefix,
+        errorMessage: formatErrorMessage(error),
+      },
+      debugLogger,
+    )
     console.error('[revenuecat] configure failed', error)
     return false
   }
@@ -93,9 +124,15 @@ export async function configureRevenueCat(debugLogger?: IapDebugLogger): Promise
 
 export async function getCustomerInfoSafe(debugLogger?: IapDebugLogger): Promise<CustomerInfo | null> {
   const ok = await configureRevenueCat(debugLogger)
-  if (!ok) return null
+  if (!ok) {
+    iapLog('step-11', 'getCustomerInfoSafe skipped because configureRevenueCat failed', { configureOk: ok }, debugLogger)
+    return null
+  }
   try {
-    return await Purchases.getCustomerInfo()
+    iapLog('step-11', 'getCustomerInfoSafe start', { configureOk: ok }, debugLogger)
+    const customerInfo = await Purchases.getCustomerInfo()
+    iapLog('step-11', 'getCustomerInfoSafe success', { activeEntitlements: Object.keys(customerInfo.entitlements.active) }, debugLogger)
+    return customerInfo
   } catch (error) {
     iapError('step-11', 'getCustomerInfo failed', error, debugLogger)
     console.error('[revenuecat] getCustomerInfo failed', error)
@@ -240,14 +277,6 @@ export async function purchaseIndex(indexType: AppIndexType, debugLogger?: IapDe
       },
       debugLogger,
     )
-
-    const canMakePaymentsResult = await Purchases.canMakePayments()
-    iapLog('step-10', 'canMakePayments result', { canMakePayments: canMakePaymentsResult }, debugLogger)
-    if (!canMakePaymentsResult) {
-      iapError('step-10', 'purchase blocked because canMakePayments=false', new Error('StoreKit payments are disabled on this device/account'), debugLogger)
-      return await getCustomerInfoSafe(debugLogger)
-    }
-
     iapLog(
       'step-9',
       'target package resolved',
