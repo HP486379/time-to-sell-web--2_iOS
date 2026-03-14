@@ -228,6 +228,35 @@ export async function purchaseIndex(indexType: AppIndexType, debugLogger?: IapDe
       },
       debugLogger,
     )
+
+    const canMakePayments = await Purchases.canMakePayments()
+    iapLog('step-10', 'canMakePayments result', { canMakePayments }, debugLogger)
+    if (!canMakePayments) {
+      iapError('step-10', 'purchase blocked because canMakePayments=false', new Error('StoreKit payments are disabled on this device/account'), debugLogger)
+      return await getCustomerInfoSafe(debugLogger)
+    }
+
+    iapLog(
+      'step-9',
+      'target package resolved',
+      {
+        indexType,
+        entitlementId,
+        packageIdentifier: targetPackage.identifier,
+        productIdentifier: targetPackage.product.identifier,
+      },
+      debugLogger,
+    )
+
+    iapLog(
+      'step-10',
+      'calling purchasePackage',
+      {
+        packageIdentifier: targetPackage.identifier,
+        productIdentifier: targetPackage.product.identifier,
+      },
+      debugLogger,
+    )
     await Purchases.purchasePackage(targetPackage)
     iapLog('step-10', 'purchasePackage resolved successfully', { indexType, entitlementId }, debugLogger)
     console.log('[revenuecat] purchase success', { indexType, entitlementId })
@@ -239,6 +268,14 @@ export async function purchaseIndex(indexType: AppIndexType, debugLogger?: IapDe
       iapLog('step-10', 'purchase cancelled by user', { indexType, entitlementId }, debugLogger)
       console.log('[revenuecat] purchase cancelled', { indexType, entitlementId })
     } else {
+      const rcError = error as { code?: unknown; userInfo?: unknown; underlyingErrorMessage?: unknown }
+      iapLog('step-10', 'purchase failure details', {
+        indexType,
+        entitlementId,
+        code: rcError?.code,
+        underlyingErrorMessage: rcError?.underlyingErrorMessage,
+        userInfo: rcError?.userInfo,
+      }, debugLogger)
       iapError('step-10', 'purchase failed', error, debugLogger)
       console.error('[revenuecat] purchase failed', { indexType, entitlementId, error })
     }
