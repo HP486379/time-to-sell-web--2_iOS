@@ -65,6 +65,20 @@ function formatErrorMessage(error: unknown): string {
   return String(error)
 }
 
+function extractErrorDetail(error: unknown): Record<string, unknown> {
+  if (typeof error !== 'object' || error === null) return { raw: String(error) }
+  const e = error as Record<string, unknown>
+  return {
+    message: e.message,
+    code: e.code,
+    underlyingErrorMessage: e.underlyingErrorMessage,
+    userInfo: e.userInfo,
+    readableErrorCode: e.readableErrorCode,
+    errorUserInfo: e.errorUserInfo,
+    keys: Object.keys(e),
+  }
+}
+
 function keyPrefix4(value: string): string {
   return value.slice(0, 4)
 }
@@ -195,6 +209,7 @@ export async function configureRevenueCat(debugLogger?: IapDebugLogger): Promise
     return true
   } catch (error) {
     iapError('step-7', 'configureRevenueCat failed', error, debugLogger)
+    iapLog('step-7', 'configureRevenueCat error detail', extractErrorDetail(error), debugLogger)
     iapLog(
       'step-7',
       'configureRevenueCat returning false',
@@ -223,6 +238,7 @@ export async function getCustomerInfoSafe(debugLogger?: IapDebugLogger): Promise
     return customerInfo
   } catch (error) {
     iapError('step-11', 'getCustomerInfo failed', error, debugLogger)
+    iapLog('step-11', 'getCustomerInfo error detail', extractErrorDetail(error), debugLogger)
     console.error('[revenuecat] getCustomerInfo failed', error)
     return null
   }
@@ -254,6 +270,7 @@ export async function getDefaultOfferingSafe(debugLogger?: IapDebugLogger): Prom
     return current
   } catch (error) {
     iapError('step-8', 'getDefaultOfferingSafe failed', error, debugLogger)
+    iapLog('step-8', 'getDefaultOfferingSafe error detail', extractErrorDetail(error), debugLogger)
     console.error('[revenuecat] getOfferings failed', error)
     return null
   }
