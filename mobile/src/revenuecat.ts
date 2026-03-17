@@ -57,26 +57,26 @@ let firstConfigureKeyPrefix: string | null = null
 let firstConfigureKeySuffix: string | null = null
 const REVENUECAT_CONFIGURE_CALLSITE = 'mobile/src/revenuecat.ts:configureRevenueCat'
 
+const IAP_DEBUG_ENABLED = false
+
+function debugConsoleLog(...args: unknown[]) {
+  if (IAP_DEBUG_ENABLED) console.log(...args)
+}
+
+function debugConsoleWarn(...args: unknown[]) {
+  if (IAP_DEBUG_ENABLED) console.warn(...args)
+}
+
+function debugConsoleError(...args: unknown[]) {
+  if (IAP_DEBUG_ENABLED) console.error(...args)
+}
+
 function formatErrorMessage(error: unknown): string {
   if (error instanceof Error) return error.message
   if (typeof error === 'object' && error !== null && 'message' in error) {
     return String((error as { message?: unknown }).message)
   }
   return String(error)
-}
-
-function extractErrorDetail(error: unknown): Record<string, unknown> {
-  if (typeof error !== 'object' || error === null) return { raw: String(error) }
-  const e = error as Record<string, unknown>
-  return {
-    message: e.message,
-    code: e.code,
-    underlyingErrorMessage: e.underlyingErrorMessage,
-    userInfo: e.userInfo,
-    readableErrorCode: e.readableErrorCode,
-    errorUserInfo: e.errorUserInfo,
-    keys: Object.keys(e),
-  }
 }
 
 function keyPrefix4(value: string): string {
@@ -89,14 +89,14 @@ function keySuffix4(value: string): string {
 
 function iapLog(step: string, message: string, payload?: unknown, debugLogger?: IapDebugLogger) {
   const text = payload === undefined ? `[IAP] ${step} ${message}` : `[IAP] ${step} ${message} ${JSON.stringify(payload)}`
-  console.log(`[IAP] ${step} ${message}`, payload ?? '')
-  debugLogger?.(text)
+  debugConsoleLog(`[IAP] ${step} ${message}`, payload ?? '')
+  if (IAP_DEBUG_ENABLED) debugLogger?.(text)
 }
 
 function iapError(step: string, message: string, error: unknown, debugLogger?: IapDebugLogger) {
   const text = `[IAP] ${step} ${message} error=${formatErrorMessage(error)}`
-  console.error(`[IAP] ${step} ${message}`, error)
-  debugLogger?.(text)
+  debugConsoleError(`[IAP] ${step} ${message}`, error)
+  if (IAP_DEBUG_ENABLED) debugLogger?.(text)
 }
 
 export async function configureRevenueCat(debugLogger?: IapDebugLogger): Promise<boolean> {
@@ -160,16 +160,16 @@ export async function configureRevenueCat(debugLogger?: IapDebugLogger): Promise
       },
       debugLogger,
     )
-    console.error('[revenuecat] revenuecatPublicApiKey is missing in expoConfig.extra/manifest.extra')
+    debugConsoleError('[revenuecat] revenuecatPublicApiKey is missing in expoConfig.extra/manifest.extra')
     return false
   }
 
   iapLog('step-7', 'resolved iOS SDK key state', { isEmpty: false, source: IOS_PUBLIC_SDK_KEY_SOURCE }, debugLogger)
   const keyPrefix = keyPrefix4(IOS_PUBLIC_SDK_KEY)
   const keySuffix = keySuffix4(IOS_PUBLIC_SDK_KEY)
-  console.log('[revenuecat] key prefix/suffix:', { keyPrefix, keySuffix })
+  debugConsoleLog('[revenuecat] key prefix/suffix:', { keyPrefix, keySuffix })
   if (!IOS_PUBLIC_SDK_KEY.startsWith('appl_')) {
-    console.warn('[revenuecat] key prefix is not appl_ (please verify iOS Public SDK Key)')
+    debugConsoleWarn('[revenuecat] key prefix is not appl_ (please verify iOS Public SDK Key)')
   }
 
   try {
@@ -205,11 +205,10 @@ export async function configureRevenueCat(debugLogger?: IapDebugLogger): Promise
     )
     configured = true
     iapLog('step-7', 'configureRevenueCat success', undefined, debugLogger)
-    console.log('[revenuecat] configured successfully')
+    debugConsoleLog('[revenuecat] configured successfully')
     return true
   } catch (error) {
     iapError('step-7', 'configureRevenueCat failed', error, debugLogger)
-    iapLog('step-7', 'configureRevenueCat error detail', extractErrorDetail(error), debugLogger)
     iapLog(
       'step-7',
       'configureRevenueCat returning false',
@@ -220,7 +219,7 @@ export async function configureRevenueCat(debugLogger?: IapDebugLogger): Promise
       },
       debugLogger,
     )
-    console.error('[revenuecat] configure failed', error)
+    debugConsoleError('[revenuecat] configure failed', error)
     return false
   }
 }
@@ -238,8 +237,7 @@ export async function getCustomerInfoSafe(debugLogger?: IapDebugLogger): Promise
     return customerInfo
   } catch (error) {
     iapError('step-11', 'getCustomerInfo failed', error, debugLogger)
-    iapLog('step-11', 'getCustomerInfo error detail', extractErrorDetail(error), debugLogger)
-    console.error('[revenuecat] getCustomerInfo failed', error)
+    debugConsoleError('[revenuecat] getCustomerInfo failed', error)
     return null
   }
 }
@@ -266,12 +264,11 @@ export async function getDefaultOfferingSafe(debugLogger?: IapDebugLogger): Prom
       },
       debugLogger,
     )
-    console.log('[revenuecat] offerings fetched', { hasCurrent: !!current, count: Object.keys(offerings.all).length })
+    debugConsoleLog('[revenuecat] offerings fetched', { hasCurrent: !!current, count: Object.keys(offerings.all).length })
     return current
   } catch (error) {
     iapError('step-8', 'getDefaultOfferingSafe failed', error, debugLogger)
-    iapLog('step-8', 'getDefaultOfferingSafe error detail', extractErrorDetail(error), debugLogger)
-    console.error('[revenuecat] getOfferings failed', error)
+    debugConsoleError('[revenuecat] getOfferings failed', error)
     return null
   }
 }
@@ -328,7 +325,7 @@ export async function purchaseIndex(indexType: AppIndexType, debugLogger?: IapDe
   const entitlementId = INDEX_TO_ENTITLEMENT[indexType]
   if (!entitlementId) {
     iapLog('step-7', 'purchase skipped because selected index is free', { indexType }, debugLogger)
-    console.log('[revenuecat] free index selected, purchase not required', { indexType })
+    debugConsoleLog('[revenuecat] free index selected, purchase not required', { indexType })
     return getCustomerInfoSafe(debugLogger)
   }
 
@@ -357,7 +354,7 @@ export async function purchaseIndex(indexType: AppIndexType, debugLogger?: IapDe
     const targetPackage = findPackageForIndex(offering, indexType, entitlementId, debugLogger)
     if (!targetPackage) {
       iapLog('step-9', 'target package not found', { indexType, entitlementId }, debugLogger)
-      console.error('[revenuecat] target package not found in default offering', { indexType, entitlementId })
+      debugConsoleError('[revenuecat] target package not found in default offering', { indexType, entitlementId })
       return await getCustomerInfoSafe(debugLogger)
     }
 
@@ -434,14 +431,14 @@ export async function purchaseIndex(indexType: AppIndexType, debugLogger?: IapDe
     )
     await Purchases.purchasePackage(targetPackage)
     iapLog('step-10', 'purchasePackage resolved successfully', { indexType, entitlementId }, debugLogger)
-    console.log('[revenuecat] purchase success', { indexType, entitlementId })
+    debugConsoleLog('[revenuecat] purchase success', { indexType, entitlementId })
   } catch (error: unknown) {
     const cancelled = typeof error === 'object' && error !== null && 'userCancelled' in error
       ? Boolean((error as { userCancelled?: boolean }).userCancelled)
       : false
     if (cancelled) {
       iapLog('step-10', 'purchase cancelled by user', { indexType, entitlementId }, debugLogger)
-      console.log('[revenuecat] purchase cancelled', { indexType, entitlementId })
+      debugConsoleLog('[revenuecat] purchase cancelled', { indexType, entitlementId })
     } else {
       const rcError = error as { code?: unknown; userInfo?: unknown; underlyingErrorMessage?: unknown }
       iapLog('step-10', 'purchase failure details', {
@@ -452,7 +449,7 @@ export async function purchaseIndex(indexType: AppIndexType, debugLogger?: IapDe
         userInfo: rcError?.userInfo,
       }, debugLogger)
       iapError('step-10', 'purchase failed', error, debugLogger)
-      console.error('[revenuecat] purchase failed', { indexType, entitlementId, error })
+      debugConsoleError('[revenuecat] purchase failed', { indexType, entitlementId, error })
     }
   }
 
@@ -466,10 +463,10 @@ export async function restorePurchasesSafe(debugLogger?: IapDebugLogger): Promis
   try {
     await Purchases.restorePurchases()
     iapLog('step-r1', 'restore purchases success', undefined, debugLogger)
-    console.log('[revenuecat] restore purchases success')
+    debugConsoleLog('[revenuecat] restore purchases success')
   } catch (error) {
     iapError('step-r1', 'restore purchases failed', error, debugLogger)
-    console.error('[revenuecat] restore purchases failed', error)
+    debugConsoleError('[revenuecat] restore purchases failed', error)
   }
 
   return await getCustomerInfoSafe(debugLogger)
