@@ -13,6 +13,7 @@ import {
   configureRevenueCat,
   getCustomerInfoSafe,
   getDefaultOfferingSafe,
+  getLastPurchaseFailure,
   isIndexUnlocked,
   purchaseIndex,
   restorePurchasesSafe,
@@ -56,6 +57,7 @@ function isAllowedInWebView(url: string): boolean {
 
 export function DashboardScreen() {
   const webRef = useRef<WebView>(null)
+  const purchaseInProgressRef = useRef(false)
   const [webViewKey, setWebViewKey] = useState(0)
   const [isLoading, setIsLoading] = useState(true)
   const [hasError, setHasError] = useState(false)
@@ -104,6 +106,8 @@ export function DashboardScreen() {
         });
         window.__TIMETOSELL_NATIVE__ = window.__TIMETOSELL_NATIVE__ || {};
         window.__TIMETOSELL_NATIVE__.purchaseIndex = function(indexType) {
+          var tracePayload = { type: 'IAP_TRACE', stage: 'A', indexType: indexType, purchaseInProgress: !!window.__TIMETOSELL_PURCHASE_IN_PROGRESS__, targetIndexName: indexType };
+          if (window.ReactNativeWebView) window.ReactNativeWebView.postMessage(JSON.stringify(tracePayload));
           emitIapDebug('step-2', 'window.__TIMETOSELL_NATIVE__.purchaseIndex called', { indexType: indexType });
           if (!window.ReactNativeWebView) {
             emitIapDebug('step-3', 'PURCHASE_INDEX skipped because ReactNativeWebView is missing');
@@ -199,6 +203,11 @@ export function DashboardScreen() {
 
       const data = JSON.parse(rawData) as { type?: string; indexType?: AppIndexType; step?: string; message?: string; payload?: unknown }
 
+      if (data.type === 'IAP_TRACE') {
+        console.log('[IAP_TRACE] webview bridge trace', data)
+        return
+      }
+
       if (data.type === 'IAP_DEBUG_LOG') {
         const suffix = data.payload === undefined || data.payload === null ? '' : ` ${JSON.stringify(data.payload)}`
         appendIapDebug(`[IAP] ${data.step ?? 'step-w'} ${data.message ?? 'web debug'}${suffix}`)
@@ -207,18 +216,49 @@ export function DashboardScreen() {
 
       if (data.type === 'PURCHASE_INDEX' && data.indexType) {
         appendIapDebug(`[IAP] step-6 PURCHASE_INDEX received indexType=${data.indexType}`)
-        const nextInfo = await purchaseIndex(data.indexType, IAP_DEBUG ? iapDebugLogger : undefined)
-        appendIapDebug(`[IAP] step-10 purchaseIndex resolved hasCustomerInfo=${String(!!nextInfo)}`)
-        setCustomerInfo(nextInfo)
-        const flags = buildEntitlementFlags(nextInfo)
-        injectEntitlementsToCurrentPage(flags)
-        const unlocked = isIndexUnlocked(data.indexType, nextInfo)
-        webRef.current?.injectJavaScript(
-          `window.dispatchEvent(new CustomEvent('${PURCHASE_EVENT_NAME}', { detail: ${JSON.stringify({
-            ok: unlocked,
+        console.log('[IAP_TRACE] purchase button path entered', {
+          stage: 'A',
+          indexType: data.indexType,
+          purchaseInProgress: purchaseInProgressRef.current,
+          targetIndexName: data.indexType,
+        })
+        console.log('[IAP_TRACE] purchase request received', {
+          stage: 'B',
+          indexType: data.indexType,
+          confirmResult: 'user_confirmed_inferred_by_PURCHASE_INDEX_message',
+          earlyReturnAfterConfirm: false,
+          purchaseInProgress: purchaseInProgressRef.current,
+        })
+        purchaseInProgressRef.current = true
+
+        try {
+          const nextInfo = await purchaseIndex(data.indexType, IAP_DEBUG ? iapDebugLogger : undefined)
+          appendIapDebug(`[IAP] step-10 purchaseIndex resolved hasCustomerInfo=${String(!!nextInfo)}`)
+          setCustomerInfo(nextInfo)
+          const flags = buildEntitlementFlags(nextInfo)
+          injectEntitlementsToCurrentPage(flags)
+          const unlocked = isIndexUnlocked(data.indexType, nextInfo)
+          const failure = getLastPurchaseFailure()
+          const failureMessage = unlocked ? undefined : failure.message
+          webRef.current?.injectJavaScript(
+            `window.dispatchEvent(new CustomEvent('${PURCHASE_EVENT_NAME}', { detail: ${JSON.stringify({
+              ok: unlocked,
+              indexType: data.indexType,
+              failureReason: failure.reason,
+              failureMessage,
+            })} })); true;`,
+          )
+          console.log('[IAP_TRACE] purchase result dispatched', {
+            stage: 'F',
             indexType: data.indexType,
-          })} })); true;`,
-        )
+            unlocked,
+            failureReason: failure.reason,
+            failureMessage,
+          })
+        } finally {
+          purchaseInProgressRef.current = false
+          console.log('[IAP_TRACE] purchaseInProgress released', { stage: 'H', purchaseInProgress: purchaseInProgressRef.current })
+        }
       } else if (data.type === 'RESTORE_PURCHASES') {
         appendIapDebug('[IAP] step-6b RESTORE_PURCHASES received')
         const nextInfo = await restorePurchasesSafe(IAP_DEBUG ? iapDebugLogger : undefined)
