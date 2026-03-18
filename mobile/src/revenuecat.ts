@@ -70,6 +70,37 @@ const PURCHASE_FAILURE_MESSAGE: Record<Exclude<PurchaseFailureReason, 'none'>, s
 
 let lastPurchaseFailureReason: PurchaseFailureReason = 'none'
 
+type PurchaseTraceSnapshot = {
+  step: string
+  failureReason: PurchaseFailureReason
+  offeringsStatus: 'OK' | 'NULL'
+  pkgCount: number
+  availablePackageIdentifiers: string[]
+  targetPackageIdentifier: string
+  targetProductIdentifier: string
+}
+
+let lastPurchaseTraceSnapshot: PurchaseTraceSnapshot = {
+  step: 'init',
+  failureReason: 'none',
+  offeringsStatus: 'NULL',
+  pkgCount: 0,
+  availablePackageIdentifiers: [],
+  targetPackageIdentifier: 'NULL',
+  targetProductIdentifier: 'NULL',
+}
+
+function setPurchaseTraceSnapshot(patch: Partial<PurchaseTraceSnapshot>) {
+  lastPurchaseTraceSnapshot = {
+    ...lastPurchaseTraceSnapshot,
+    ...patch,
+  }
+}
+
+export function getLastPurchaseTraceSnapshot(): PurchaseTraceSnapshot {
+  return lastPurchaseTraceSnapshot
+}
+
 function setLastPurchaseFailureReason(reason: PurchaseFailureReason) {
   lastPurchaseFailureReason = reason
 }
@@ -361,6 +392,15 @@ export async function purchaseIndex(indexType: AppIndexType, debugLogger?: IapDe
   iapLog('step-7', 'indexType to productId mapping snapshot', INDEX_TO_PRODUCT_ID, debugLogger)
 
   setLastPurchaseFailureReason('none')
+  setPurchaseTraceSnapshot({
+    step: 'purchase_start',
+    failureReason: 'none',
+    offeringsStatus: 'NULL',
+    pkgCount: 0,
+    availablePackageIdentifiers: [],
+    targetPackageIdentifier: 'NULL',
+    targetProductIdentifier: 'NULL',
+  })
 
   const entitlementId = INDEX_TO_ENTITLEMENT[indexType]
   if (!entitlementId) {
@@ -374,6 +414,7 @@ export async function purchaseIndex(indexType: AppIndexType, debugLogger?: IapDe
   const ok = await configureRevenueCat(debugLogger)
   if (!ok) {
     setLastPurchaseFailureReason('configure_failed')
+    setPurchaseTraceSnapshot({ step: 'configure', failureReason: 'configure_failed', offeringsStatus: 'NULL', pkgCount: 0 })
     iapTrace('configureRevenueCat failed before purchase', { indexType, entitlementId })
     iapLog('step-7', 'purchaseIndex aborted because configureRevenueCat failed', { indexType, entitlementId }, debugLogger)
     return null
@@ -382,31 +423,47 @@ export async function purchaseIndex(indexType: AppIndexType, debugLogger?: IapDe
   try {
     const offering = await getDefaultOfferingSafe(debugLogger)
     const packages = offering?.availablePackages ?? []
+    const packageIdentifiers = packages.map((pkg) => pkg.identifier)
     iapTrace('offering lookup result', {
       indexType,
       entitlementId,
       offeringAvailable: !!offering,
-      packageIdentifiers: packages.map((pkg) => pkg.identifier),
+      packageIdentifiers,
       productIdentifiers: packages.map((pkg) => pkg.product.identifier),
+    })
+    setPurchaseTraceSnapshot({
+      step: 'offering',
+      offeringsStatus: offering ? 'OK' : 'NULL',
+      pkgCount: packages.length,
+      availablePackageIdentifiers: packageIdentifiers,
     })
 
     if (!offering) {
       setLastPurchaseFailureReason('offerings_unavailable')
+      setPurchaseTraceSnapshot({ step: 'offering', failureReason: 'offerings_unavailable', offeringsStatus: 'NULL', pkgCount: 0 })
       iapTrace('offerings unavailable', { indexType, entitlementId })
       return await getCustomerInfoSafe(debugLogger)
     }
 
     const targetPackage = findPackageForIndex(offering, indexType, entitlementId, debugLogger)
+    const resolvedPackageIdentifier = targetPackage?.identifier ?? 'NULL'
+    const resolvedProductIdentifier = targetPackage?.product.identifier ?? 'NULL'
     iapTrace('package resolution result', {
       indexType,
       entitlementId,
       found: !!targetPackage,
-      targetPackageIdentifier: targetPackage?.identifier ?? null,
-      targetProductIdentifier: targetPackage?.product.identifier ?? null,
+      targetPackageIdentifier: resolvedPackageIdentifier,
+      targetProductIdentifier: resolvedProductIdentifier,
+    })
+    setPurchaseTraceSnapshot({
+      step: 'package_resolve',
+      targetPackageIdentifier: resolvedPackageIdentifier,
+      targetProductIdentifier: resolvedProductIdentifier,
     })
 
     if (!targetPackage) {
       setLastPurchaseFailureReason('package_not_found')
+      setPurchaseTraceSnapshot({ step: 'package_resolve', failureReason: 'package_not_found', targetPackageIdentifier: 'NULL', targetProductIdentifier: 'NULL' })
       iapTrace('package not found', { indexType, entitlementId, expectedProductId })
       return await getCustomerInfoSafe(debugLogger)
     }
@@ -415,6 +472,7 @@ export async function purchaseIndex(indexType: AppIndexType, debugLogger?: IapDe
     iapTrace('canMakePayments checked', { canMakePaymentsResult })
     if (!canMakePaymentsResult) {
       setLastPurchaseFailureReason('store_unavailable')
+      setPurchaseTraceSnapshot({ step: 'can_make_payments', failureReason: 'store_unavailable' })
       iapTrace('store unavailable / cannot make payments', { indexType, entitlementId })
       iapError('step-10', 'purchase blocked because canMakePayments=false', new Error('StoreKit payments are disabled on this device/account'), debugLogger)
       return await getCustomerInfoSafe(debugLogger)
@@ -425,10 +483,12 @@ export async function purchaseIndex(indexType: AppIndexType, debugLogger?: IapDe
       productIdentifier: targetPackage.product.identifier,
       packageIsDefined: !!targetPackage,
     })
+    setPurchaseTraceSnapshot({ step: 'purchase_call' })
 
     const result = await Purchases.purchasePackage(targetPackage)
     const info = result.customerInfo ?? null
     setLastPurchaseFailureReason('none')
+    setPurchaseTraceSnapshot({ step: 'purchase_success', failureReason: 'none' })
     iapTrace('purchasePackage success', {
       hasCustomerInfo: !!info,
       activeEntitlements: info ? Object.keys(info.entitlements.active) : [],
@@ -441,10 +501,12 @@ export async function purchaseIndex(indexType: AppIndexType, debugLogger?: IapDe
 
     if (cancelled) {
       setLastPurchaseFailureReason('user_cancelled')
+      setPurchaseTraceSnapshot({ step: 'purchase_catch', failureReason: 'user_cancelled' })
       iapTrace('purchase catch classified', { reason: 'userCancelled' })
       iapLog('step-10', 'purchase cancelled by user', { indexType, entitlementId }, debugLogger)
     } else {
       setLastPurchaseFailureReason('unknown_error')
+      setPurchaseTraceSnapshot({ step: 'purchase_catch', failureReason: 'unknown_error' })
       const rcError = error as { code?: unknown; userInfo?: unknown; underlyingErrorMessage?: unknown }
       iapTrace('purchase catch classified', {
         reason: 'unknown error',

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ActivityIndicator, AppState, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
+import { ActivityIndicator, Alert, AppState, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { WebView } from 'react-native-webview'
 import type {
@@ -14,6 +14,7 @@ import {
   getCustomerInfoSafe,
   getDefaultOfferingSafe,
   getLastPurchaseFailure,
+  getLastPurchaseTraceSnapshot,
   isIndexUnlocked,
   purchaseIndex,
   restorePurchasesSafe,
@@ -44,6 +45,30 @@ function formatErrorMessage(error: unknown): string {
     return String((error as { message?: unknown }).message)
   }
   return String(error)
+}
+
+function showIapTraceFailureAlert(snapshot: {
+  step: string
+  failureReason: string
+  offeringsStatus: 'OK' | 'NULL'
+  pkgCount: number
+  availablePackageIdentifiers: string[]
+  targetPackageIdentifier: string
+  targetProductIdentifier: string
+}) {
+  Alert.alert(
+    'IAP TRACE',
+    [
+      'IAP_TRACE_UI',
+      `step=${snapshot.step}`,
+      `reason=${snapshot.failureReason}`,
+      `offerings=${snapshot.offeringsStatus}`,
+      `pkgCount=${snapshot.pkgCount}`,
+      `targetPkg=${snapshot.targetPackageIdentifier}`,
+      `productId=${snapshot.targetProductIdentifier}`,
+      `packages=${snapshot.availablePackageIdentifiers.join(',')}`,
+    ].join('\n'),
+  )
 }
 
 function isAllowedInWebView(url: string): boolean {
@@ -240,6 +265,24 @@ export function DashboardScreen() {
           const unlocked = isIndexUnlocked(data.indexType, nextInfo)
           const failure = getLastPurchaseFailure()
           const failureMessage = unlocked ? undefined : failure.message
+          const traceSnapshot = getLastPurchaseTraceSnapshot()
+
+          if (!unlocked && failure.reason !== 'none') {
+            if (failure.reason === 'user_cancelled') {
+              Alert.alert('IAP TRACE', 'IAP_TRACE_UI\nstep=purchase_catch\nreason=user_cancelled')
+            } else {
+              showIapTraceFailureAlert({
+                step: traceSnapshot.step,
+                failureReason: failure.reason,
+                offeringsStatus: traceSnapshot.offeringsStatus,
+                pkgCount: traceSnapshot.pkgCount,
+                availablePackageIdentifiers: traceSnapshot.availablePackageIdentifiers,
+                targetPackageIdentifier: traceSnapshot.targetPackageIdentifier,
+                targetProductIdentifier: traceSnapshot.targetProductIdentifier,
+              })
+            }
+          }
+
           webRef.current?.injectJavaScript(
             `window.dispatchEvent(new CustomEvent('${PURCHASE_EVENT_NAME}', { detail: ${JSON.stringify({
               ok: unlocked,
