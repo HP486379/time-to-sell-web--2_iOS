@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ActivityIndicator, AppState, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
+import { ActivityIndicator, Alert, AppState, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { WebView } from 'react-native-webview'
 import type {
@@ -13,6 +13,8 @@ import {
   configureRevenueCat,
   getCustomerInfoSafe,
   getDefaultOfferingSafe,
+  getLastPurchaseFailure,
+  getLastPurchaseTraceSnapshot,
   isIndexUnlocked,
   purchaseIndex,
   restorePurchasesSafe,
@@ -24,11 +26,9 @@ const WEB_DASHBOARD_URL =
   (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env
     ?.EXPO_PUBLIC_DASHBOARD_URL ?? 'https://time-to-sell-web-ios.vercel.app/'
 
-const WEBVIEW_DEBUG =
-  (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env
-    ?.EXPO_PUBLIC_WEBVIEW_DEBUG === '1'
+const WEBVIEW_DEBUG = false
 
-const IAP_DEBUG = true
+const IAP_DEBUG = false
 
 const ALLOWED_HOSTS = new Set(['time-to-sell-web-ios.vercel.app'])
 
@@ -47,6 +47,30 @@ function formatErrorMessage(error: unknown): string {
   return String(error)
 }
 
+function showIapTraceFailureAlert(snapshot: {
+  step: string
+  failureReason: string
+  offeringsStatus: 'OK' | 'NULL'
+  pkgCount: number
+  availablePackageIdentifiers: string[]
+  targetPackageIdentifier: string
+  targetProductIdentifier: string
+}) {
+  Alert.alert(
+    'IAP TRACE',
+    [
+      'IAP_TRACE_UI',
+      `step=${snapshot.step}`,
+      `reason=${snapshot.failureReason}`,
+      `offerings=${snapshot.offeringsStatus}`,
+      `pkgCount=${snapshot.pkgCount}`,
+      `targetPkg=${snapshot.targetPackageIdentifier}`,
+      `productId=${snapshot.targetProductIdentifier}`,
+      `packages=${snapshot.availablePackageIdentifiers.join(',')}`,
+    ].join('\n'),
+  )
+}
+
 function isAllowedInWebView(url: string): boolean {
   try {
     const parsed = new URL(url)
@@ -58,6 +82,7 @@ function isAllowedInWebView(url: string): boolean {
 
 export function DashboardScreen() {
   const webRef = useRef<WebView>(null)
+  const purchaseInProgressRef = useRef(false)
   const [webViewKey, setWebViewKey] = useState(0)
   const [isLoading, setIsLoading] = useState(true)
   const [hasError, setHasError] = useState(false)
@@ -81,7 +106,7 @@ export function DashboardScreen() {
   const logIapError = useCallback((step: string, message: string, error: unknown) => {
     const line = `[IAP] ${step} ${message} error=${formatErrorMessage(error)}`
     appendIapDebug(line)
-    console.error(`[IAP] ${step} ${message}`, error)
+    if (IAP_DEBUG) console.error(`[IAP] ${step} ${message}`, error)
   }, [appendIapDebug])
 
   const uri = useMemo(() => WEB_DASHBOARD_URL, [])
@@ -92,8 +117,9 @@ export function DashboardScreen() {
     const payload = JSON.stringify(entitlementFlags)
     return `
       (function () {
+        var IAP_DEBUG_ENABLED = ${IAP_DEBUG ? 'true' : 'false'};
         var emitIapDebug = function(step, message, payload) {
-          if (!window.ReactNativeWebView) return;
+          if (!IAP_DEBUG_ENABLED || !window.ReactNativeWebView) return;
           var debugPayload = JSON.stringify({ type: 'IAP_DEBUG_LOG', step: step, message: message, payload: payload || null });
           window.ReactNativeWebView.postMessage(debugPayload);
         };
@@ -105,6 +131,8 @@ export function DashboardScreen() {
         });
         window.__TIMETOSELL_NATIVE__ = window.__TIMETOSELL_NATIVE__ || {};
         window.__TIMETOSELL_NATIVE__.purchaseIndex = function(indexType) {
+          var tracePayload = { type: 'IAP_TRACE', stage: 'A', indexType: indexType, purchaseInProgress: !!window.__TIMETOSELL_PURCHASE_IN_PROGRESS__, targetIndexName: indexType };
+          if (window.ReactNativeWebView) window.ReactNativeWebView.postMessage(JSON.stringify(tracePayload));
           emitIapDebug('step-2', 'window.__TIMETOSELL_NATIVE__.purchaseIndex called', { indexType: indexType });
           if (!window.ReactNativeWebView) {
             emitIapDebug('step-3', 'PURCHASE_INDEX skipped because ReactNativeWebView is missing');
@@ -152,23 +180,23 @@ export function DashboardScreen() {
   const syncRevenueCatState = useCallback(async () => {
     try {
       appendIapDebug('[IAP] step-5 syncRevenueCatState started')
-      const configured = await configureRevenueCat(iapDebugLogger)
+      const configured = await configureRevenueCat(IAP_DEBUG ? iapDebugLogger : undefined)
       if (!configured) {
         appendIapDebug('[IAP] step-5 configureRevenueCat failed, fallback to free entitlements')
-        console.error('[dashboard-webview] RevenueCat configure failed. fallback to free entitlements')
+        if (WEBVIEW_DEBUG) console.error('[dashboard-webview] RevenueCat configure failed. fallback to free entitlements')
         setCustomerInfo(null)
         injectEntitlementsToCurrentPage(buildEntitlementFlags(null))
         return
       }
 
       appendIapDebug('[IAP] step-5 configureRevenueCat succeeded')
-      await getDefaultOfferingSafe(iapDebugLogger)
-      const info = await getCustomerInfoSafe(iapDebugLogger)
+      await getDefaultOfferingSafe(IAP_DEBUG ? iapDebugLogger : undefined)
+      const info = await getCustomerInfoSafe(IAP_DEBUG ? iapDebugLogger : undefined)
       setCustomerInfo(info)
       injectEntitlementsToCurrentPage(buildEntitlementFlags(info))
     } catch (error) {
       logIapError('step-5', 'syncRevenueCatState failed', error)
-      console.error('[dashboard-webview] syncRevenueCatState failed', error)
+      if (WEBVIEW_DEBUG) console.error('[dashboard-webview] syncRevenueCatState failed', error)
       setCustomerInfo(null)
       injectEntitlementsToCurrentPage(buildEntitlementFlags(null))
     } finally {
@@ -200,6 +228,11 @@ export function DashboardScreen() {
 
       const data = JSON.parse(rawData) as { type?: string; indexType?: AppIndexType; step?: string; message?: string; payload?: unknown }
 
+      if (data.type === 'IAP_TRACE') {
+        console.log('[IAP_TRACE] webview bridge trace', data)
+        return
+      }
+
       if (data.type === 'IAP_DEBUG_LOG') {
         const suffix = data.payload === undefined || data.payload === null ? '' : ` ${JSON.stringify(data.payload)}`
         appendIapDebug(`[IAP] ${data.step ?? 'step-w'} ${data.message ?? 'web debug'}${suffix}`)
@@ -208,21 +241,70 @@ export function DashboardScreen() {
 
       if (data.type === 'PURCHASE_INDEX' && data.indexType) {
         appendIapDebug(`[IAP] step-6 PURCHASE_INDEX received indexType=${data.indexType}`)
-        const nextInfo = await purchaseIndex(data.indexType, iapDebugLogger)
-        appendIapDebug(`[IAP] step-10 purchaseIndex resolved hasCustomerInfo=${String(!!nextInfo)}`)
-        setCustomerInfo(nextInfo)
-        const flags = buildEntitlementFlags(nextInfo)
-        injectEntitlementsToCurrentPage(flags)
-        const unlocked = isIndexUnlocked(data.indexType, nextInfo)
-        webRef.current?.injectJavaScript(
-          `window.dispatchEvent(new CustomEvent('${PURCHASE_EVENT_NAME}', { detail: ${JSON.stringify({
-            ok: unlocked,
+        console.log('[IAP_TRACE] purchase button path entered', {
+          stage: 'A',
+          indexType: data.indexType,
+          purchaseInProgress: purchaseInProgressRef.current,
+          targetIndexName: data.indexType,
+        })
+        console.log('[IAP_TRACE] purchase request received', {
+          stage: 'B',
+          indexType: data.indexType,
+          confirmResult: 'user_confirmed_inferred_by_PURCHASE_INDEX_message',
+          earlyReturnAfterConfirm: false,
+          purchaseInProgress: purchaseInProgressRef.current,
+        })
+        purchaseInProgressRef.current = true
+
+        try {
+          const nextInfo = await purchaseIndex(data.indexType, IAP_DEBUG ? iapDebugLogger : undefined)
+          appendIapDebug(`[IAP] step-10 purchaseIndex resolved hasCustomerInfo=${String(!!nextInfo)}`)
+          setCustomerInfo(nextInfo)
+          const flags = buildEntitlementFlags(nextInfo)
+          injectEntitlementsToCurrentPage(flags)
+          const unlocked = isIndexUnlocked(data.indexType, nextInfo)
+          const failure = getLastPurchaseFailure()
+          const failureMessage = unlocked ? undefined : failure.message
+          const traceSnapshot = getLastPurchaseTraceSnapshot()
+
+          if (!unlocked && failure.reason !== 'none') {
+            if (failure.reason === 'user_cancelled') {
+              Alert.alert('IAP TRACE', 'IAP_TRACE_UI\nstep=purchase_catch\nreason=user_cancelled')
+            } else {
+              showIapTraceFailureAlert({
+                step: traceSnapshot.step,
+                failureReason: failure.reason,
+                offeringsStatus: traceSnapshot.offeringsStatus,
+                pkgCount: traceSnapshot.pkgCount,
+                availablePackageIdentifiers: traceSnapshot.availablePackageIdentifiers,
+                targetPackageIdentifier: traceSnapshot.targetPackageIdentifier,
+                targetProductIdentifier: traceSnapshot.targetProductIdentifier,
+              })
+            }
+          }
+
+          webRef.current?.injectJavaScript(
+            `window.dispatchEvent(new CustomEvent('${PURCHASE_EVENT_NAME}', { detail: ${JSON.stringify({
+              ok: unlocked,
+              indexType: data.indexType,
+              failureReason: failure.reason,
+              failureMessage,
+            })} })); true;`,
+          )
+          console.log('[IAP_TRACE] purchase result dispatched', {
+            stage: 'F',
             indexType: data.indexType,
-          })} })); true;`,
-        )
+            unlocked,
+            failureReason: failure.reason,
+            failureMessage,
+          })
+        } finally {
+          purchaseInProgressRef.current = false
+          console.log('[IAP_TRACE] purchaseInProgress released', { stage: 'H', purchaseInProgress: purchaseInProgressRef.current })
+        }
       } else if (data.type === 'RESTORE_PURCHASES') {
         appendIapDebug('[IAP] step-6b RESTORE_PURCHASES received')
-        const nextInfo = await restorePurchasesSafe(iapDebugLogger)
+        const nextInfo = await restorePurchasesSafe(IAP_DEBUG ? iapDebugLogger : undefined)
         setCustomerInfo(nextInfo)
         const flags = buildEntitlementFlags(nextInfo)
         injectEntitlementsToCurrentPage(flags)
@@ -234,7 +316,7 @@ export function DashboardScreen() {
       }
     } catch (error) {
       logIapError('step-4', 'message handling failed', error)
-      console.error('[dashboard-webview] message handling failed', error)
+      if (WEBVIEW_DEBUG) console.error('[dashboard-webview] message handling failed', error)
     }
   }, [appendIapDebug, iapDebugLogger, injectEntitlementsToCurrentPage, logIapError])
 
