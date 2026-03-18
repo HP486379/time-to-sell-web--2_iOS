@@ -78,6 +78,13 @@ type PurchaseTraceSnapshot = {
   availablePackageIdentifiers: string[]
   targetPackageIdentifier: string
   targetProductIdentifier: string
+  offeringErrorCode: string
+  offeringErrorDomain: string
+  offeringErrorUserInfo: string
+  offeringErrorMessage: string
+  offeringUnderlyingErrorMessage: string
+  iosPublicSdkKeyPrefix: string
+  iosPublicSdkKeySource: string
 }
 
 let lastPurchaseTraceSnapshot: PurchaseTraceSnapshot = {
@@ -88,6 +95,13 @@ let lastPurchaseTraceSnapshot: PurchaseTraceSnapshot = {
   availablePackageIdentifiers: [],
   targetPackageIdentifier: 'NULL',
   targetProductIdentifier: 'NULL',
+  offeringErrorCode: 'NULL',
+  offeringErrorDomain: 'NULL',
+  offeringErrorUserInfo: 'NULL',
+  offeringErrorMessage: 'NULL',
+  offeringUnderlyingErrorMessage: 'NULL',
+  iosPublicSdkKeyPrefix: IOS_PUBLIC_SDK_KEY.slice(0, 5) || 'NULL',
+  iosPublicSdkKeySource: IOS_PUBLIC_SDK_KEY_SOURCE || 'none',
 }
 
 function setPurchaseTraceSnapshot(patch: Partial<PurchaseTraceSnapshot>) {
@@ -145,6 +159,23 @@ function formatErrorMessage(error: unknown): string {
     return String((error as { message?: unknown }).message)
   }
   return String(error)
+}
+
+function stringifyUnknown(value: unknown): string {
+  if (value === undefined || value === null) return 'NULL'
+  if (typeof value === 'string') return value
+  try {
+    return JSON.stringify(value)
+  } catch {
+    return String(value)
+  }
+}
+
+function getErrorField(error: unknown, key: string): unknown {
+  if (typeof error === 'object' && error !== null && key in error) {
+    return (error as Record<string, unknown>)[key]
+  }
+  return undefined
 }
 
 function keyPrefix4(value: string): string {
@@ -321,6 +352,19 @@ export async function getDefaultOfferingSafe(debugLogger?: IapDebugLogger): Prom
     const offerings = await Purchases.getOfferings()
     const current = offerings.current ?? null
     const packages = current?.availablePackages ?? []
+    setPurchaseTraceSnapshot({
+      step: 'offering',
+      offeringsStatus: !!current ? 'OK' : 'NULL',
+      pkgCount: packages.length,
+      availablePackageIdentifiers: packages.map((pkg) => pkg.identifier),
+      offeringErrorCode: 'NULL',
+      offeringErrorDomain: 'NULL',
+      offeringErrorUserInfo: 'NULL',
+      offeringErrorMessage: 'NULL',
+      offeringUnderlyingErrorMessage: 'NULL',
+      iosPublicSdkKeyPrefix: IOS_PUBLIC_SDK_KEY.slice(0, 5) || 'NULL',
+      iosPublicSdkKeySource: IOS_PUBLIC_SDK_KEY_SOURCE || 'none',
+    })
     iapLog(
       'step-8',
       'getDefaultOfferingSafe result',
@@ -335,6 +379,22 @@ export async function getDefaultOfferingSafe(debugLogger?: IapDebugLogger): Prom
     debugConsoleLog('[revenuecat] offerings fetched', { hasCurrent: !!current, count: Object.keys(offerings.all).length })
     return current
   } catch (error) {
+    setPurchaseTraceSnapshot({
+      step: 'offering',
+      failureReason: 'offerings_unavailable',
+      offeringsStatus: 'NULL',
+      pkgCount: 0,
+      availablePackageIdentifiers: [],
+      targetPackageIdentifier: 'NULL',
+      targetProductIdentifier: 'NULL',
+      offeringErrorCode: stringifyUnknown(getErrorField(error, 'code')),
+      offeringErrorDomain: stringifyUnknown(getErrorField(error, 'domain')),
+      offeringErrorUserInfo: stringifyUnknown(getErrorField(error, 'userInfo')),
+      offeringErrorMessage: formatErrorMessage(error),
+      offeringUnderlyingErrorMessage: stringifyUnknown(getErrorField(error, 'underlyingErrorMessage')),
+      iosPublicSdkKeyPrefix: IOS_PUBLIC_SDK_KEY.slice(0, 5) || 'NULL',
+      iosPublicSdkKeySource: IOS_PUBLIC_SDK_KEY_SOURCE || 'none',
+    })
     iapError('step-8', 'getDefaultOfferingSafe failed', error, debugLogger)
     debugConsoleError('[revenuecat] getOfferings failed', error)
     return null
@@ -400,6 +460,13 @@ export async function purchaseIndex(indexType: AppIndexType, debugLogger?: IapDe
     availablePackageIdentifiers: [],
     targetPackageIdentifier: 'NULL',
     targetProductIdentifier: 'NULL',
+    offeringErrorCode: 'NULL',
+    offeringErrorDomain: 'NULL',
+    offeringErrorUserInfo: 'NULL',
+    offeringErrorMessage: 'NULL',
+    offeringUnderlyingErrorMessage: 'NULL',
+    iosPublicSdkKeyPrefix: IOS_PUBLIC_SDK_KEY.slice(0, 5) || 'NULL',
+    iosPublicSdkKeySource: IOS_PUBLIC_SDK_KEY_SOURCE || 'none',
   })
 
   const entitlementId = INDEX_TO_ENTITLEMENT[indexType]

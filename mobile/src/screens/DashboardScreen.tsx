@@ -55,6 +55,13 @@ function showIapTraceFailureAlert(snapshot: {
   availablePackageIdentifiers: string[]
   targetPackageIdentifier: string
   targetProductIdentifier: string
+  offeringErrorCode: string
+  offeringErrorDomain: string
+  offeringErrorUserInfo: string
+  offeringErrorMessage: string
+  offeringUnderlyingErrorMessage: string
+  iosPublicSdkKeyPrefix: string
+  iosPublicSdkKeySource: string
 }) {
   Alert.alert(
     'IAP TRACE',
@@ -67,6 +74,13 @@ function showIapTraceFailureAlert(snapshot: {
       `targetPkg=${snapshot.targetPackageIdentifier}`,
       `productId=${snapshot.targetProductIdentifier}`,
       `packages=${snapshot.availablePackageIdentifiers.join(',')}`,
+      `error.code=${snapshot.offeringErrorCode}`,
+      `error.domain=${snapshot.offeringErrorDomain}`,
+      `error.userInfo=${snapshot.offeringErrorUserInfo}`,
+      `error.message=${snapshot.offeringErrorMessage}`,
+      `error.underlyingErrorMessage=${snapshot.offeringUnderlyingErrorMessage}`,
+      `sdkKeyPrefix=${snapshot.iosPublicSdkKeyPrefix}`,
+      `sdkKeySource=${snapshot.iosPublicSdkKeySource}`,
     ].join('\n'),
   )
 }
@@ -279,6 +293,13 @@ export function DashboardScreen() {
                 availablePackageIdentifiers: traceSnapshot.availablePackageIdentifiers,
                 targetPackageIdentifier: traceSnapshot.targetPackageIdentifier,
                 targetProductIdentifier: traceSnapshot.targetProductIdentifier,
+                offeringErrorCode: traceSnapshot.offeringErrorCode,
+                offeringErrorDomain: traceSnapshot.offeringErrorDomain,
+                offeringErrorUserInfo: traceSnapshot.offeringErrorUserInfo,
+                offeringErrorMessage: traceSnapshot.offeringErrorMessage,
+                offeringUnderlyingErrorMessage: traceSnapshot.offeringUnderlyingErrorMessage,
+                iosPublicSdkKeyPrefix: traceSnapshot.iosPublicSdkKeyPrefix,
+                iosPublicSdkKeySource: traceSnapshot.iosPublicSdkKeySource,
               })
             }
           }
