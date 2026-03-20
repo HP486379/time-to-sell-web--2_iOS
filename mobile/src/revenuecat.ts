@@ -285,6 +285,7 @@ export async function configureRevenueCat(debugLogger?: IapDebugLogger): Promise
       debugLogger,
     )
     iapLog('step-7', 'configureRevenueCat start', { keyPrefix, source: IOS_PUBLIC_SDK_KEY_SOURCE }, debugLogger)
+    console.log('RC_KEY_DEBUG:', Constants.expoConfig?.extra?.revenuecatPublicApiKey)
     await Purchases.configure({ apiKey: IOS_PUBLIC_SDK_KEY })
     firstConfigureCallsite = REVENUECAT_CONFIGURE_CALLSITE
     firstConfigureKeySource = IOS_PUBLIC_SDK_KEY_SOURCE
