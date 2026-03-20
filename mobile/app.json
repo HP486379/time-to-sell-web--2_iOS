@@ -30,13 +30,13 @@
       },
       "revenuecatPublicApiKey": "appl_iIrqCVUnBSmqLX0tieXdcILBnSI",
       "revenuecatProductIds": {
-        "sp500_jpy": "sp500_jpy",
-        "TOPIX": "topix",
-        "NIKKEI": "nikkei225",
-        "NIFTY50": "nifty50",
-        "ORUKAN": "allcountry",
-        "orukan_jpy": "allcountry_jpy"
-      }
+  "sp500_jpy": "sp500_jpy_a",
+  "TOPIX": "topix_a",
+  "NIKKEI": "nikkei225_a",
+  "NIFTY50": "nifty50_a",
+  "ORUKAN": "allcountry_a",
+  "orukan_jpy": "allcountry_jpy_a"
+　　}
     },
     "android": {
       "package": "com.timetosell.mobile"
