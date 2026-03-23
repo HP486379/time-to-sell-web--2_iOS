@@ -152,16 +152,6 @@ export function DashboardScreen() {
   const syncRevenueCatState = useCallback(async () => {
     try {
       appendIapDebug('[IAP] step-5 syncRevenueCatState started')
-      const configured = await configureRevenueCat(iapDebugLogger)
-      if (!configured) {
-        appendIapDebug('[IAP] step-5 configureRevenueCat failed, fallback to free entitlements')
-        console.error('[dashboard-webview] RevenueCat configure failed. fallback to free entitlements')
-        setCustomerInfo(null)
-        injectEntitlementsToCurrentPage(buildEntitlementFlags(null))
-        return
-      }
-
-      appendIapDebug('[IAP] step-5 configureRevenueCat succeeded')
       await getDefaultOfferingSafe(iapDebugLogger)
       const info = await getCustomerInfoSafe(iapDebugLogger)
       setCustomerInfo(info)
@@ -175,6 +165,10 @@ export function DashboardScreen() {
       setPurchaseChecked(true)
     }
   }, [appendIapDebug, iapDebugLogger, injectEntitlementsToCurrentPage, logIapError])
+
+  useEffect(() => {
+    void configureRevenueCat(iapDebugLogger)
+  }, [])
 
   useEffect(() => {
     void syncRevenueCatState()

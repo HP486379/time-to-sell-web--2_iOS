@@ -1,5 +1,5 @@
 import Constants from 'expo-constants'
-import Purchases, { type CustomerInfo, type PurchasesOffering, type PurchasesPackage } from 'react-native-purchases'
+import Purchases, { LOG_LEVEL, type CustomerInfo, type PurchasesOffering, type PurchasesPackage } from 'react-native-purchases'
 
 const IOS_PUBLIC_SDK_KEY =
   (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env
@@ -51,6 +51,14 @@ function iapError(step: string, message: string, error: unknown, debugLogger?: I
 }
 
 export async function configureRevenueCat(debugLogger?: IapDebugLogger): Promise<boolean> {
+  console.log('[RC_DEBUG] executionEnvironment:', Constants.executionEnvironment)
+  console.log('[RC_DEBUG] isDevice:', Constants.isDevice)
+  console.log('[RC_DEBUG] __DEV__:', __DEV__)
+  if (!Constants.executionEnvironment || Constants.executionEnvironment === 'storeClient') {
+    console.warn('[RC_DEBUG] POSSIBLE EXPO GO / PREVIEW MODE')
+  }
+  Purchases.setLogLevel(LOG_LEVEL.DEBUG)
+
   if (configured) {
     iapLog('step-7', 'configureRevenueCat skipped because already configured', undefined, debugLogger)
     return true
@@ -79,7 +87,15 @@ export async function configureRevenueCat(debugLogger?: IapDebugLogger): Promise
 
   try {
     iapLog('step-7', 'configureRevenueCat start', { keyPrefix, apiKey: IOS_PUBLIC_SDK_KEY }, debugLogger)
+    console.log('[RC_DEBUG] typeof Purchases:', typeof Purchases)
+    console.log('[RC_DEBUG] Purchases keys:', Object.keys(Purchases))
+    console.log('[RC_DEBUG] calling Purchases.configure with key:', IOS_PUBLIC_SDK_KEY)
     await Purchases.configure({ apiKey: IOS_PUBLIC_SDK_KEY })
+    console.log('[RC_DEBUG] Purchases.configure called')
+    console.log('[RC_DEBUG] configure done')
+    console.log('[RC_DEBUG] calling getOfferings')
+    const offerings = await Purchases.getOfferings()
+    console.log('[RC_DEBUG] offerings result:', offerings)
     configured = true
     iapLog('step-7', 'configureRevenueCat success', undefined, debugLogger)
     console.log('[revenuecat] configured successfully')
@@ -92,8 +108,7 @@ export async function configureRevenueCat(debugLogger?: IapDebugLogger): Promise
 }
 
 export async function getCustomerInfoSafe(debugLogger?: IapDebugLogger): Promise<CustomerInfo | null> {
-  const ok = await configureRevenueCat(debugLogger)
-  if (!ok) return null
+  if (!configured) return null
   try {
     return await Purchases.getCustomerInfo()
   } catch (error) {
@@ -104,13 +119,13 @@ export async function getCustomerInfoSafe(debugLogger?: IapDebugLogger): Promise
 }
 
 export async function getDefaultOfferingSafe(debugLogger?: IapDebugLogger): Promise<PurchasesOffering | null> {
-  const ok = await configureRevenueCat(debugLogger)
-  if (!ok) {
-    iapLog('step-8', 'getDefaultOfferingSafe skipped because configureRevenueCat failed', undefined, debugLogger)
+  if (!configured) {
+    iapLog('step-8', 'getDefaultOfferingSafe skipped because configureRevenueCat has not run yet', undefined, debugLogger)
     return null
   }
   try {
     iapLog('step-8', 'getDefaultOfferingSafe start', undefined, debugLogger)
+    console.log('[RC_DEBUG] calling getOfferings')
     const offerings = await Purchases.getOfferings()
     const current = offerings.current ?? null
     const packages = current?.availablePackages ?? []
@@ -190,9 +205,8 @@ export async function purchaseIndex(indexType: AppIndexType, debugLogger?: IapDe
     return getCustomerInfoSafe(debugLogger)
   }
 
-  const ok = await configureRevenueCat(debugLogger)
-  if (!ok) {
-    iapLog('step-7', 'purchaseIndex aborted because configureRevenueCat failed', { indexType, entitlementId }, debugLogger)
+  if (!configured) {
+    iapLog('step-7', 'purchaseIndex aborted because RevenueCat is not configured yet', { indexType, entitlementId }, debugLogger)
     return null
   }
 
@@ -326,8 +340,7 @@ export async function purchaseIndex(indexType: AppIndexType, debugLogger?: IapDe
 }
 
 export async function restorePurchasesSafe(debugLogger?: IapDebugLogger): Promise<CustomerInfo | null> {
-  const ok = await configureRevenueCat(debugLogger)
-  if (!ok) return null
+  if (!configured) return null
 
   try {
     await Purchases.restorePurchases()
