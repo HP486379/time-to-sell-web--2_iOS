@@ -1,5 +1,5 @@
 import Constants from 'expo-constants'
-import Purchases, { type CustomerInfo, type PurchasesOffering, type PurchasesPackage } from 'react-native-purchases'
+import Purchases, { LOG_LEVEL, type CustomerInfo, type PurchasesOffering, type PurchasesPackage } from 'react-native-purchases'
 
 const constantsWithLegacyManifest = Constants as typeof Constants & {
   manifest?: { extra?: Record<string, unknown> }
@@ -199,6 +199,14 @@ function iapError(step: string, message: string, error: unknown, debugLogger?: I
 }
 
 export async function configureRevenueCat(debugLogger?: IapDebugLogger): Promise<boolean> {
+  console.log('[RC_DEBUG] executionEnvironment:', Constants.executionEnvironment)
+  console.log('[RC_DEBUG] isDevice:', Constants.isDevice)
+  console.log('[RC_DEBUG] __DEV__:', __DEV__)
+  if (!Constants.executionEnvironment || Constants.executionEnvironment === 'storeClient') {
+    console.warn('[RC_DEBUG] POSSIBLE EXPO GO / PREVIEW MODE')
+  }
+  Purchases.setLogLevel(LOG_LEVEL.DEBUG)
+
   if (configured) {
     iapLog(
       'step-7',
@@ -272,37 +280,16 @@ export async function configureRevenueCat(debugLogger?: IapDebugLogger): Promise
   }
 
   try {
-    iapLog(
-      'step-7',
-      'Purchases.configure about to execute',
-      {
-        firstConfigureCallsite: REVENUECAT_CONFIGURE_CALLSITE,
-        resolvedKeySource: IOS_PUBLIC_SDK_KEY_SOURCE,
-        resolvedKeyPrefix: keyPrefix,
-        resolvedKeySuffix: keySuffix,
-        alreadyConfiguredBeforeCall: configured,
-      },
-      debugLogger,
-    )
-    iapLog('step-7', 'configureRevenueCat start', { keyPrefix, source: IOS_PUBLIC_SDK_KEY_SOURCE }, debugLogger)
-    console.log('RC_KEY_DEBUG:', Constants.expoConfig?.extra?.revenuecatPublicApiKey)
+    iapLog('step-7', 'configureRevenueCat start', { keyPrefix, apiKey: IOS_PUBLIC_SDK_KEY }, debugLogger)
+    console.log('[RC_DEBUG] typeof Purchases:', typeof Purchases)
+    console.log('[RC_DEBUG] Purchases keys:', Object.keys(Purchases))
+    console.log('[RC_DEBUG] calling Purchases.configure with key:', IOS_PUBLIC_SDK_KEY)
     await Purchases.configure({ apiKey: IOS_PUBLIC_SDK_KEY })
-    firstConfigureCallsite = REVENUECAT_CONFIGURE_CALLSITE
-    firstConfigureKeySource = IOS_PUBLIC_SDK_KEY_SOURCE
-    firstConfigureKeyPrefix = keyPrefix
-    firstConfigureKeySuffix = keySuffix
-    iapLog(
-      'step-7',
-      'configured=true will be set after successful Purchases.configure',
-      {
-        firstConfigureCallsite,
-        resolvedKeySource: firstConfigureKeySource,
-        resolvedKeyPrefix: firstConfigureKeyPrefix,
-        resolvedKeySuffix: firstConfigureKeySuffix,
-        alreadyConfiguredBeforeCall: false,
-      },
-      debugLogger,
-    )
+    console.log('[RC_DEBUG] Purchases.configure called')
+    console.log('[RC_DEBUG] configure done')
+    console.log('[RC_DEBUG] calling getOfferings')
+    const offerings = await Purchases.getOfferings()
+    console.log('[RC_DEBUG] offerings result:', offerings)
     configured = true
     iapLog('step-7', 'configureRevenueCat success', undefined, debugLogger)
     debugConsoleLog('[revenuecat] configured successfully')
@@ -325,11 +312,7 @@ export async function configureRevenueCat(debugLogger?: IapDebugLogger): Promise
 }
 
 export async function getCustomerInfoSafe(debugLogger?: IapDebugLogger): Promise<CustomerInfo | null> {
-  const ok = await configureRevenueCat(debugLogger)
-  if (!ok) {
-    iapLog('step-11', 'getCustomerInfoSafe skipped because configureRevenueCat failed', { configureOk: ok }, debugLogger)
-    return null
-  }
+  if (!configured) return null
   try {
     iapLog('step-11', 'getCustomerInfoSafe start', { configureOk: ok }, debugLogger)
     const customerInfo = await Purchases.getCustomerInfo()
@@ -343,13 +326,13 @@ export async function getCustomerInfoSafe(debugLogger?: IapDebugLogger): Promise
 }
 
 export async function getDefaultOfferingSafe(debugLogger?: IapDebugLogger): Promise<PurchasesOffering | null> {
-  const ok = await configureRevenueCat(debugLogger)
-  if (!ok) {
-    iapLog('step-8', 'getDefaultOfferingSafe skipped because configureRevenueCat failed', undefined, debugLogger)
+  if (!configured) {
+    iapLog('step-8', 'getDefaultOfferingSafe skipped because configureRevenueCat has not run yet', undefined, debugLogger)
     return null
   }
   try {
     iapLog('step-8', 'getDefaultOfferingSafe start', undefined, debugLogger)
+    console.log('[RC_DEBUG] calling getOfferings')
     const offerings = await Purchases.getOfferings()
     const current = offerings.current ?? null
     const packages = current?.availablePackages ?? []
@@ -476,15 +459,8 @@ export async function purchaseIndex(indexType: AppIndexType, debugLogger?: IapDe
     return getCustomerInfoSafe(debugLogger)
   }
 
-  const expectedProductId = INDEX_TO_PRODUCT_ID[indexType] ?? null
-  iapTrace('package resolution precheck', { indexType, entitlementId, expectedProductId })
-
-  const ok = await configureRevenueCat(debugLogger)
-  if (!ok) {
-    setLastPurchaseFailureReason('configure_failed')
-    setPurchaseTraceSnapshot({ step: 'configure', failureReason: 'configure_failed', offeringsStatus: 'NULL', pkgCount: 0 })
-    iapTrace('configureRevenueCat failed before purchase', { indexType, entitlementId })
-    iapLog('step-7', 'purchaseIndex aborted because configureRevenueCat failed', { indexType, entitlementId }, debugLogger)
+  if (!configured) {
+    iapLog('step-7', 'purchaseIndex aborted because RevenueCat is not configured yet', { indexType, entitlementId }, debugLogger)
     return null
   }
 
@@ -589,8 +565,7 @@ export async function purchaseIndex(indexType: AppIndexType, debugLogger?: IapDe
 }
 
 export async function restorePurchasesSafe(debugLogger?: IapDebugLogger): Promise<CustomerInfo | null> {
-  const ok = await configureRevenueCat(debugLogger)
-  if (!ok) return null
+  if (!configured) return null
 
   try {
     await Purchases.restorePurchases()
