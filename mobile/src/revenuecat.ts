@@ -3,9 +3,9 @@ import Purchases, { LOG_LEVEL, type CustomerInfo, type PurchasesOffering, type P
 
 const runtimeExtra = (Constants.expoConfig?.extra ?? {}) as Record<string, unknown>
 const IOS_PUBLIC_SDK_KEY_CANDIDATES = [
-  (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env?.EXPO_PUBLIC_REVENUECAT_IOS_API_KEY,
-  typeof runtimeExtra.EXPO_PUBLIC_REVENUECAT_IOS_API_KEY === 'string' ? runtimeExtra.EXPO_PUBLIC_REVENUECAT_IOS_API_KEY : undefined,
   typeof runtimeExtra.revenuecatPublicApiKey === 'string' ? runtimeExtra.revenuecatPublicApiKey : undefined,
+  typeof runtimeExtra.EXPO_PUBLIC_REVENUECAT_IOS_API_KEY === 'string' ? runtimeExtra.EXPO_PUBLIC_REVENUECAT_IOS_API_KEY : undefined,
+  (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env?.EXPO_PUBLIC_REVENUECAT_IOS_API_KEY,
 ]
 const IOS_PUBLIC_SDK_KEY = IOS_PUBLIC_SDK_KEY_CANDIDATES.find((candidate) => typeof candidate === 'string' && candidate.length > 0) ?? ''
 
@@ -241,7 +241,27 @@ function rcDebugLog(debugLogger: IapDebugLogger | undefined, message: string, va
   debugLogger?.(`RC DEBUG ${safeMessage}=${safeValue}`)
 }
 
+function sanitizeDebugValue(value: unknown, maxLength = 200): string {
+  const text = value === undefined || value === null ? '' : String(value)
+  return text.length > maxLength ? `${text.slice(0, maxLength)}…` : text
+}
+
+// NOTE: Keep a single rcDebugLog definition in this module to avoid duplicate identifier errors.
+function rcDebugLog(debugLogger: IapDebugLogger | undefined, message: string, value?: unknown) {
+  const safeMessage = sanitizeDebugValue(message, 80)
+  const safeValue = value === undefined ? undefined : sanitizeDebugValue(value, 200)
+  if (safeValue === undefined) {
+    console.log(`[RC_DEBUG] ${safeMessage}`)
+    debugLogger?.(`RC DEBUG ${safeMessage}`)
+    return
+  }
+
+  console.log(`[RC_DEBUG] ${safeMessage}:`, safeValue)
+  debugLogger?.(`RC DEBUG ${safeMessage}=${safeValue}`)
+}
+
 export async function configureRevenueCat(debugLogger?: IapDebugLogger): Promise<boolean> {
+  console.log('RC API KEY =', Constants.expoConfig?.extra?.revenuecatPublicApiKey)
   console.log('[RC_DEBUG] executionEnvironment:', Constants.executionEnvironment)
   console.log('[RC_DEBUG] isDevice:', Constants.isDevice)
   console.log('[RC_DEBUG] __DEV__:', __DEV__)
@@ -547,26 +567,32 @@ export async function purchaseIndex(indexType: AppIndexType, debugLogger?: IapDe
       return await getCustomerInfoSafe(debugLogger)
     }
 
-    const targetPackage = findPackageForIndex(offering, indexType, entitlementId, debugLogger)
-    const resolvedPackageIdentifier = targetPackage?.identifier ?? 'NULL'
-    const resolvedProductIdentifier = targetPackage?.product.identifier ?? 'NULL'
-    iapTrace('package resolution result', {
-      indexType,
-      entitlementId,
-      found: !!targetPackage,
-      targetPackageIdentifier: resolvedPackageIdentifier,
-      targetProductIdentifier: resolvedProductIdentifier,
-    })
-    setPurchaseTraceSnapshot({
-      step: 'package_resolve',
-      targetPackageIdentifier: resolvedPackageIdentifier,
-      targetProductIdentifier: resolvedProductIdentifier,
-    })
+    iapLog(
+      'step-9',
+      'target package resolved',
+      {
+        indexType,
+        entitlementId,
+        packageIdentifier: targetPackage.identifier,
+        productIdentifier: targetPackage.product.identifier,
+      },
+      debugLogger,
+    )
 
-    if (!targetPackage) {
-      setLastPurchaseFailureReason('package_not_found')
-      setPurchaseTraceSnapshot({ step: 'package_resolve', failureReason: 'package_not_found', targetPackageIdentifier: 'NULL', targetProductIdentifier: 'NULL' })
-      iapTrace('package not found', { indexType, entitlementId, expectedProductId })
+    iapLog(
+      'step-10',
+      'calling purchasePackage',
+      {
+        packageIdentifier: targetPackage.identifier,
+        productIdentifier: targetPackage.product.identifier,
+      },
+      debugLogger,
+    )
+
+    const canMakePaymentsResult = await Purchases.canMakePayments()
+    iapLog('step-10', 'canMakePayments result', { canMakePayments: canMakePaymentsResult }, debugLogger)
+    if (!canMakePaymentsResult) {
+      iapError('step-10', 'purchase blocked because canMakePayments=false', new Error('StoreKit payments are disabled on this device/account'), debugLogger)
       return await getCustomerInfoSafe(debugLogger)
     }
     await Purchases.purchasePackage(targetPackage)
