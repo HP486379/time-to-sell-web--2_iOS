@@ -87,6 +87,8 @@ export function DashboardScreen() {
   const uri = useMemo(() => WEB_DASHBOARD_URL, [])
 
   const entitlementFlags = useMemo(() => buildEntitlementFlags(customerInfo), [customerInfo])
+  const rcDebugLines = useMemo(() => iapDebugLines.filter((line) => line.includes('RC DEBUG')), [iapDebugLines])
+  const nonRcDebugLines = useMemo(() => iapDebugLines.filter((line) => !line.includes('RC DEBUG')), [iapDebugLines])
 
   const injectedBeforeContentLoad = useMemo(() => {
     const payload = JSON.stringify(entitlementFlags)
@@ -152,16 +154,6 @@ export function DashboardScreen() {
   const syncRevenueCatState = useCallback(async () => {
     try {
       appendIapDebug('[IAP] step-5 syncRevenueCatState started')
-      const configured = await configureRevenueCat(iapDebugLogger)
-      if (!configured) {
-        appendIapDebug('[IAP] step-5 configureRevenueCat failed, fallback to free entitlements')
-        console.error('[dashboard-webview] RevenueCat configure failed. fallback to free entitlements')
-        setCustomerInfo(null)
-        injectEntitlementsToCurrentPage(buildEntitlementFlags(null))
-        return
-      }
-
-      appendIapDebug('[IAP] step-5 configureRevenueCat succeeded')
       await getDefaultOfferingSafe(iapDebugLogger)
       const info = await getCustomerInfoSafe(iapDebugLogger)
       setCustomerInfo(info)
@@ -175,6 +167,10 @@ export function DashboardScreen() {
       setPurchaseChecked(true)
     }
   }, [appendIapDebug, iapDebugLogger, injectEntitlementsToCurrentPage, logIapError])
+
+  useEffect(() => {
+    void configureRevenueCat(iapDebugLogger)
+  }, [])
 
   useEffect(() => {
     void syncRevenueCatState()
@@ -347,7 +343,16 @@ export function DashboardScreen() {
           </View>
           {iapDebugVisible && (
             <ScrollView style={styles.debugPanelBody}>
-              {iapDebugLines.map((line, idx) => (
+              {rcDebugLines.length > 0 && (
+                <>
+                  <Text style={styles.debugSectionTitle}>RC DEBUG</Text>
+                  {rcDebugLines.map((line, idx) => (
+                    <Text key={`rc-${idx}-${line}`} style={styles.debugLine}>{line}</Text>
+                  ))}
+                  <Text style={styles.debugSectionTitle}>IAP TRACE</Text>
+                </>
+              )}
+              {nonRcDebugLines.map((line, idx) => (
                 <Text key={`${idx}-${line}`} style={styles.debugLine}>{line}</Text>
               ))}
             </ScrollView>
@@ -403,5 +408,6 @@ const styles = StyleSheet.create({
   debugButton: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, backgroundColor: '#374151' },
   debugButtonText: { color: '#F9FAFB', fontSize: 11, fontWeight: '600' },
   debugPanelBody: { borderTopWidth: 1, borderTopColor: '#374151', paddingHorizontal: 10, paddingVertical: 8, maxHeight: 170 },
+  debugSectionTitle: { color: '#FDE68A', fontSize: 11, fontWeight: '700', marginBottom: 6 },
   debugLine: { color: '#D1D5DB', fontSize: 10, marginBottom: 4 },
 })

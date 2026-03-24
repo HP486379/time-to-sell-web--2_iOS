@@ -1,5 +1,5 @@
 import Constants from 'expo-constants'
-import Purchases, { type CustomerInfo, type PurchasesOffering, type PurchasesPackage } from 'react-native-purchases'
+import Purchases, { LOG_LEVEL, type CustomerInfo, type PurchasesOffering, type PurchasesPackage } from 'react-native-purchases'
 
 const IOS_PUBLIC_SDK_KEY =
   (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env
@@ -50,7 +50,43 @@ function iapError(step: string, message: string, error: unknown, debugLogger?: I
   debugLogger?.(text)
 }
 
+function formatRevenueCatErrorDetails(error: unknown): string {
+  if (typeof error !== 'object' || error === null) {
+    return `message=${formatErrorMessage(error)}`
+  }
+
+  const details = error as { message?: unknown; code?: unknown; domain?: unknown }
+  return [
+    `message=${details.message === undefined ? '' : String(details.message)}`,
+    `code=${details.code === undefined ? '' : String(details.code)}`,
+    `domain=${details.domain === undefined ? '' : String(details.domain)}`,
+  ].join(' ')
+}
+
+function rcDebugLog(debugLogger: IapDebugLogger | undefined, message: string, value?: unknown) {
+  if (value === undefined) {
+    console.log(`[RC_DEBUG] ${message}`)
+    debugLogger?.(`RC DEBUG ${message}`)
+    return
+  }
+
+  console.log(`[RC_DEBUG] ${message}`, value)
+  debugLogger?.(`RC DEBUG ${message}=${typeof value === 'string' ? value : JSON.stringify(value)}`)
+}
+
 export async function configureRevenueCat(debugLogger?: IapDebugLogger): Promise<boolean> {
+  console.log('[RC_DEBUG] executionEnvironment:', Constants.executionEnvironment)
+  console.log('[RC_DEBUG] isDevice:', Constants.isDevice)
+  console.log('[RC_DEBUG] __DEV__:', __DEV__)
+  rcDebugLog(debugLogger, 'executionEnvironment', String(Constants.executionEnvironment ?? ''))
+  rcDebugLog(debugLogger, 'isDevice', String(Constants.isDevice))
+  rcDebugLog(debugLogger, '__DEV__', String(__DEV__))
+  if (!Constants.executionEnvironment || Constants.executionEnvironment === 'storeClient') {
+    console.warn('[RC_DEBUG] POSSIBLE EXPO GO / PREVIEW MODE')
+    rcDebugLog(debugLogger, 'warning', 'POSSIBLE EXPO GO / PREVIEW MODE')
+  }
+  Purchases.setLogLevel(LOG_LEVEL.DEBUG)
+
   if (configured) {
     iapLog('step-7', 'configureRevenueCat skipped because already configured', undefined, debugLogger)
     return true
@@ -79,12 +115,27 @@ export async function configureRevenueCat(debugLogger?: IapDebugLogger): Promise
 
   try {
     iapLog('step-7', 'configureRevenueCat start', { keyPrefix, apiKey: IOS_PUBLIC_SDK_KEY }, debugLogger)
+    rcDebugLog(debugLogger, 'typeofPurchases', typeof Purchases)
+    rcDebugLog(debugLogger, 'purchasesKeys', Object.keys(Purchases).join(','))
+    rcDebugLog(debugLogger, 'configure', 'start')
+    console.log('[RC_DEBUG] typeof Purchases:', typeof Purchases)
+    console.log('[RC_DEBUG] Purchases keys:', Object.keys(Purchases))
+    console.log('[RC_DEBUG] calling Purchases.configure with key:', IOS_PUBLIC_SDK_KEY)
     await Purchases.configure({ apiKey: IOS_PUBLIC_SDK_KEY })
+    console.log('[RC_DEBUG] Purchases.configure called')
+    console.log('[RC_DEBUG] configure done')
+    rcDebugLog(debugLogger, 'configure', 'done')
+    console.log('[RC_DEBUG] calling getOfferings')
+    rcDebugLog(debugLogger, 'getOfferings', 'start')
+    const offerings = await Purchases.getOfferings()
+    console.log('[RC_DEBUG] offerings result:', offerings)
+    rcDebugLog(debugLogger, 'getOfferings', offerings)
     configured = true
     iapLog('step-7', 'configureRevenueCat success', undefined, debugLogger)
     console.log('[revenuecat] configured successfully')
     return true
   } catch (error) {
+    rcDebugLog(debugLogger, 'error', formatRevenueCatErrorDetails(error))
     iapError('step-7', 'configureRevenueCat failed', error, debugLogger)
     console.error('[revenuecat] configure failed', error)
     return false
@@ -92,8 +143,7 @@ export async function configureRevenueCat(debugLogger?: IapDebugLogger): Promise
 }
 
 export async function getCustomerInfoSafe(debugLogger?: IapDebugLogger): Promise<CustomerInfo | null> {
-  const ok = await configureRevenueCat(debugLogger)
-  if (!ok) return null
+  if (!configured) return null
   try {
     return await Purchases.getCustomerInfo()
   } catch (error) {
@@ -104,13 +154,13 @@ export async function getCustomerInfoSafe(debugLogger?: IapDebugLogger): Promise
 }
 
 export async function getDefaultOfferingSafe(debugLogger?: IapDebugLogger): Promise<PurchasesOffering | null> {
-  const ok = await configureRevenueCat(debugLogger)
-  if (!ok) {
-    iapLog('step-8', 'getDefaultOfferingSafe skipped because configureRevenueCat failed', undefined, debugLogger)
+  if (!configured) {
+    iapLog('step-8', 'getDefaultOfferingSafe skipped because configureRevenueCat has not run yet', undefined, debugLogger)
     return null
   }
   try {
     iapLog('step-8', 'getDefaultOfferingSafe start', undefined, debugLogger)
+    console.log('[RC_DEBUG] calling getOfferings')
     const offerings = await Purchases.getOfferings()
     const current = offerings.current ?? null
     const packages = current?.availablePackages ?? []
@@ -190,9 +240,8 @@ export async function purchaseIndex(indexType: AppIndexType, debugLogger?: IapDe
     return getCustomerInfoSafe(debugLogger)
   }
 
-  const ok = await configureRevenueCat(debugLogger)
-  if (!ok) {
-    iapLog('step-7', 'purchaseIndex aborted because configureRevenueCat failed', { indexType, entitlementId }, debugLogger)
+  if (!configured) {
+    iapLog('step-7', 'purchaseIndex aborted because RevenueCat is not configured yet', { indexType, entitlementId }, debugLogger)
     return null
   }
 
@@ -326,8 +375,7 @@ export async function purchaseIndex(indexType: AppIndexType, debugLogger?: IapDe
 }
 
 export async function restorePurchasesSafe(debugLogger?: IapDebugLogger): Promise<CustomerInfo | null> {
-  const ok = await configureRevenueCat(debugLogger)
-  if (!ok) return null
+  if (!configured) return null
 
   try {
     await Purchases.restorePurchases()
