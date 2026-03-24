@@ -1,17 +1,13 @@
 import Constants from 'expo-constants'
 import Purchases, { LOG_LEVEL, type CustomerInfo, type PurchasesOffering, type PurchasesPackage } from 'react-native-purchases'
 
-const IOS_PUBLIC_SDK_KEY =
-  (typeof IOS_PUBLIC_SDK_KEY_CANDIDATES.expoConfigExtra === 'string' && IOS_PUBLIC_SDK_KEY_CANDIDATES.expoConfigExtra) ||
-  (typeof IOS_PUBLIC_SDK_KEY_CANDIDATES.manifestExtra === 'string' && IOS_PUBLIC_SDK_KEY_CANDIDATES.manifestExtra) ||
-  ''
-
-const IOS_PUBLIC_SDK_KEY_SOURCE =
-  typeof IOS_PUBLIC_SDK_KEY_CANDIDATES.expoConfigExtra === 'string' && IOS_PUBLIC_SDK_KEY_CANDIDATES.expoConfigExtra
-    ? 'expoConfig.extra.revenuecatPublicApiKey'
-    : typeof IOS_PUBLIC_SDK_KEY_CANDIDATES.manifestExtra === 'string' && IOS_PUBLIC_SDK_KEY_CANDIDATES.manifestExtra
-      ? 'manifest.extra.revenuecatPublicApiKey'
-      : 'none'
+const runtimeExtra = (Constants.expoConfig?.extra ?? {}) as Record<string, unknown>
+const IOS_PUBLIC_SDK_KEY_CANDIDATES = [
+  (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env?.EXPO_PUBLIC_REVENUECAT_IOS_API_KEY,
+  typeof runtimeExtra.EXPO_PUBLIC_REVENUECAT_IOS_API_KEY === 'string' ? runtimeExtra.EXPO_PUBLIC_REVENUECAT_IOS_API_KEY : undefined,
+  typeof runtimeExtra.revenuecatPublicApiKey === 'string' ? runtimeExtra.revenuecatPublicApiKey : undefined,
+]
+const IOS_PUBLIC_SDK_KEY = IOS_PUBLIC_SDK_KEY_CANDIDATES.find((candidate) => typeof candidate === 'string' && candidate.length > 0) ?? ''
 
 export type AppIndexType = 'SP500' | 'sp500_jpy' | 'TOPIX' | 'NIKKEI' | 'NIFTY50' | 'ORUKAN' | 'orukan_jpy'
 export type EntitlementId =
@@ -213,6 +209,25 @@ function sanitizeDebugValue(value: unknown, maxLength = 200): string {
   return text.length > maxLength ? `${text.slice(0, maxLength)}…` : text
 }
 
+function rcDebugLog(debugLogger: IapDebugLogger | undefined, message: string, value?: unknown) {
+  const safeMessage = sanitizeDebugValue(message, 80)
+  const safeValue = value === undefined ? undefined : sanitizeDebugValue(value, 200)
+  if (safeValue === undefined) {
+    console.log(`[RC_DEBUG] ${safeMessage}`)
+    debugLogger?.(`RC DEBUG ${safeMessage}`)
+    return
+  }
+
+  console.log(`[RC_DEBUG] ${safeMessage}:`, safeValue)
+  debugLogger?.(`RC DEBUG ${safeMessage}=${safeValue}`)
+}
+
+function sanitizeDebugValue(value: unknown, maxLength = 200): string {
+  const text = value === undefined || value === null ? '' : String(value)
+  return text.length > maxLength ? `${text.slice(0, maxLength)}…` : text
+}
+
+// NOTE: Keep a single rcDebugLog definition in this module to avoid duplicate identifier errors.
 function rcDebugLog(debugLogger: IapDebugLogger | undefined, message: string, value?: unknown) {
   const safeMessage = sanitizeDebugValue(message, 80)
   const safeValue = value === undefined ? undefined : sanitizeDebugValue(value, 200)
@@ -497,6 +512,7 @@ export async function purchaseIndex(indexType: AppIndexType, debugLogger?: IapDe
   })
 
   const entitlementId = INDEX_TO_ENTITLEMENT[indexType]
+  const expectedProductId = INDEX_TO_PRODUCT_ID[indexType]
   if (!entitlementId) {
     iapTrace('purchase skipped for free index', { indexType })
     return getCustomerInfoSafe(debugLogger)
@@ -510,25 +526,24 @@ export async function purchaseIndex(indexType: AppIndexType, debugLogger?: IapDe
   try {
     const offering = await getDefaultOfferingSafe(debugLogger)
     const packages = offering?.availablePackages ?? []
-    const packageIdentifiers = packages.map((pkg) => pkg.identifier)
-    iapTrace('offering lookup result', {
-      indexType,
-      entitlementId,
-      offeringAvailable: !!offering,
-      packageIdentifiers,
-      productIdentifiers: packages.map((pkg) => pkg.product.identifier),
-    })
-    setPurchaseTraceSnapshot({
-      step: 'offering',
-      offeringsStatus: offering ? 'OK' : 'NULL',
-      pkgCount: packages.length,
-      availablePackageIdentifiers: packageIdentifiers,
-    })
+    iapLog(
+      'step-8',
+      'default offering packages for purchase flow',
+      {
+        indexType,
+        entitlementId,
+        expectedProductId,
+        packagesCount: packages.length,
+        packageIdentifiers: packages.map((pkg) => pkg.identifier),
+        productIdentifiers: packages.map((pkg) => pkg.product.identifier),
+      },
+      debugLogger,
+    )
 
-    if (!offering) {
-      setLastPurchaseFailureReason('offerings_unavailable')
-      setPurchaseTraceSnapshot({ step: 'offering', failureReason: 'offerings_unavailable', offeringsStatus: 'NULL', pkgCount: 0 })
-      iapTrace('offerings unavailable', { indexType, entitlementId })
+    const targetPackage = findPackageForIndex(offering, indexType, entitlementId, debugLogger)
+    if (!targetPackage) {
+      iapLog('step-9', 'target package not found', { indexType, entitlementId }, debugLogger)
+      console.error('[revenuecat] target package not found in default offering', { indexType, entitlementId })
       return await getCustomerInfoSafe(debugLogger)
     }
 
@@ -554,32 +569,7 @@ export async function purchaseIndex(indexType: AppIndexType, debugLogger?: IapDe
       iapTrace('package not found', { indexType, entitlementId, expectedProductId })
       return await getCustomerInfoSafe(debugLogger)
     }
-
-    const canMakePaymentsResult = await Purchases.canMakePayments()
-    iapTrace('canMakePayments checked', { canMakePaymentsResult })
-    if (!canMakePaymentsResult) {
-      setLastPurchaseFailureReason('store_unavailable')
-      setPurchaseTraceSnapshot({ step: 'can_make_payments', failureReason: 'store_unavailable' })
-      iapTrace('store unavailable / cannot make payments', { indexType, entitlementId })
-      iapError('step-10', 'purchase blocked because canMakePayments=false', new Error('StoreKit payments are disabled on this device/account'), debugLogger)
-      return await getCustomerInfoSafe(debugLogger)
-    }
-
-    iapTrace('purchasePackage about to call', {
-      packageIdentifier: targetPackage.identifier,
-      productIdentifier: targetPackage.product.identifier,
-      packageIsDefined: !!targetPackage,
-    })
-    setPurchaseTraceSnapshot({ step: 'purchase_call' })
-
-    const result = await Purchases.purchasePackage(targetPackage)
-    const info = result.customerInfo ?? null
-    setLastPurchaseFailureReason('none')
-    setPurchaseTraceSnapshot({ step: 'purchase_success', failureReason: 'none' })
-    iapTrace('purchasePackage success', {
-      hasCustomerInfo: !!info,
-      activeEntitlements: info ? Object.keys(info.entitlements.active) : [],
-    })
+    await Purchases.purchasePackage(targetPackage)
     iapLog('step-10', 'purchasePackage resolved successfully', { indexType, entitlementId }, debugLogger)
   } catch (error: unknown) {
     const cancelled = typeof error === 'object' && error !== null && 'userCancelled' in error
