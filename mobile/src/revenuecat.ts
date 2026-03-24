@@ -250,6 +250,24 @@ function rcDebugLog(debugLogger: IapDebugLogger | undefined, message: string, va
   debugLogger?.(`RC DEBUG ${safeMessage}=${safeValue}`)
 }
 
+function sanitizeDebugValue(value: unknown, maxLength = 200): string {
+  const text = value === undefined || value === null ? '' : String(value)
+  return text.length > maxLength ? `${text.slice(0, maxLength)}…` : text
+}
+
+function rcDebugLog(debugLogger: IapDebugLogger | undefined, message: string, value?: unknown) {
+  const safeMessage = sanitizeDebugValue(message, 80)
+  const safeValue = value === undefined ? undefined : sanitizeDebugValue(value, 200)
+  if (safeValue === undefined) {
+    console.log(`[RC_DEBUG] ${safeMessage}`)
+    debugLogger?.(`RC DEBUG ${safeMessage}`)
+    return
+  }
+
+  console.log(`[RC_DEBUG] ${safeMessage}:`, safeValue)
+  debugLogger?.(`RC DEBUG ${safeMessage}=${safeValue}`)
+}
+
 export async function configureRevenueCat(debugLogger?: IapDebugLogger): Promise<boolean> {
   console.log('RC API KEY =', Constants.expoConfig?.extra?.revenuecatPublicApiKey)
   console.log('[RC_DEBUG] executionEnvironment:', Constants.executionEnvironment)

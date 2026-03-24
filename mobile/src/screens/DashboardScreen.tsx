@@ -271,27 +271,31 @@ export function DashboardScreen() {
         appendIapDebug(`[IAP] step-10 purchase flags to WebView/React state=${JSON.stringify(flags)}`)
         injectEntitlementsToCurrentPage(flags)
         const unlocked = isIndexUnlocked(data.indexType, nextInfo)
-        webRef.current?.injectJavaScript(
-          `window.dispatchEvent(new CustomEvent('${PURCHASE_EVENT_NAME}', { detail: ${JSON.stringify({
-            ok: unlocked,
-            indexType: data.indexType,
-            unlocked,
-            failureReason: failure.reason,
-            failureMessage,
-          })
-        } finally {
-          purchaseInProgressRef.current = false
-          console.log('[IAP_TRACE] purchaseInProgress released', { stage: 'H', purchaseInProgress: purchaseInProgressRef.current })
-        }
+        webRef.current?.injectJavaScript(`
+          window.dispatchEvent(
+            new CustomEvent(${JSON.stringify(PURCHASE_EVENT_NAME)}, {
+              detail: ${JSON.stringify({
+                ok: unlocked,
+                indexType: data.indexType,
+              })}
+            })
+          );
+          true;
+        `)
       } else if (data.type === 'RESTORE_PURCHASES') {
         appendIapDebug('[IAP] step-6b RESTORE_PURCHASES received')
         const nextInfo = await restorePurchasesSafe(IAP_DEBUG ? iapDebugLogger : undefined)
         setCustomerInfo(nextInfo)
         const flags = buildEntitlementFlags(nextInfo)
         injectEntitlementsToCurrentPage(flags)
-        webRef.current?.injectJavaScript(
-          `window.dispatchEvent(new CustomEvent('${RESTORE_EVENT_NAME}', { detail: ${JSON.stringify({ ok: true })} })); true;`,
-        )
+        webRef.current?.injectJavaScript(`
+          window.dispatchEvent(
+            new CustomEvent(${JSON.stringify(RESTORE_EVENT_NAME)}, {
+              detail: ${JSON.stringify({ ok: true })}
+            })
+          );
+          true;
+        `)
       } else {
         appendIapDebug(`[IAP] step-6 message ignored type=${String(data.type)}`)
       }
