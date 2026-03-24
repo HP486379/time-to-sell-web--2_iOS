@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ActivityIndicator, AppState, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
+import { ActivityIndicator, Alert, AppState, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { WebView } from 'react-native-webview'
 import type {
@@ -13,6 +13,8 @@ import {
   configureRevenueCat,
   getCustomerInfoSafe,
   getDefaultOfferingSafe,
+  getLastPurchaseFailure,
+  getLastPurchaseTraceSnapshot,
   isIndexUnlocked,
   purchaseIndex,
   restorePurchasesSafe,
@@ -24,9 +26,7 @@ const WEB_DASHBOARD_URL =
   (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env
     ?.EXPO_PUBLIC_DASHBOARD_URL ?? 'https://time-to-sell-web-ios.vercel.app/'
 
-const WEBVIEW_DEBUG =
-  (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env
-    ?.EXPO_PUBLIC_WEBVIEW_DEBUG === '1'
+const WEBVIEW_DEBUG = false
 
 const IAP_DEBUG = true
 const IAP_TRACE_MAX_LINES = 20
@@ -48,6 +48,44 @@ function formatErrorMessage(error: unknown): string {
   return String(error)
 }
 
+function showIapTraceFailureAlert(snapshot: {
+  step: string
+  failureReason: string
+  offeringsStatus: 'OK' | 'NULL'
+  pkgCount: number
+  availablePackageIdentifiers: string[]
+  targetPackageIdentifier: string
+  targetProductIdentifier: string
+  offeringErrorCode: string
+  offeringErrorDomain: string
+  offeringErrorUserInfo: string
+  offeringErrorMessage: string
+  offeringUnderlyingErrorMessage: string
+  iosPublicSdkKeyPrefix: string
+  iosPublicSdkKeySource: string
+}) {
+  Alert.alert(
+    'IAP TRACE',
+    [
+      'IAP_TRACE_UI',
+      `step=${snapshot.step}`,
+      `reason=${snapshot.failureReason}`,
+      `offerings=${snapshot.offeringsStatus}`,
+      `pkgCount=${snapshot.pkgCount}`,
+      `targetPkg=${snapshot.targetPackageIdentifier}`,
+      `productId=${snapshot.targetProductIdentifier}`,
+      `packages=${snapshot.availablePackageIdentifiers.join(',')}`,
+      `error.code=${snapshot.offeringErrorCode}`,
+      `error.domain=${snapshot.offeringErrorDomain}`,
+      `error.userInfo=${snapshot.offeringErrorUserInfo}`,
+      `error.message=${snapshot.offeringErrorMessage}`,
+      `error.underlyingErrorMessage=${snapshot.offeringUnderlyingErrorMessage}`,
+      `sdkKeyPrefix=${snapshot.iosPublicSdkKeyPrefix}`,
+      `sdkKeySource=${snapshot.iosPublicSdkKeySource}`,
+    ].join('\n'),
+  )
+}
+
 function isAllowedInWebView(url: string): boolean {
   try {
     const parsed = new URL(url)
@@ -59,6 +97,7 @@ function isAllowedInWebView(url: string): boolean {
 
 export function DashboardScreen() {
   const webRef = useRef<WebView>(null)
+  const purchaseInProgressRef = useRef(false)
   const [webViewKey, setWebViewKey] = useState(0)
   const [isLoading, setIsLoading] = useState(true)
   const [hasError, setHasError] = useState(false)
@@ -89,7 +128,7 @@ export function DashboardScreen() {
   const logIapError = useCallback((step: string, message: string, error: unknown) => {
     const line = `[IAP] ${step} ${message} error=${formatErrorMessage(error)}`
     appendIapDebug(line)
-    console.error(`[IAP] ${step} ${message}`, error)
+    if (IAP_DEBUG) console.error(`[IAP] ${step} ${message}`, error)
   }, [appendIapDebug])
 
   const uri = useMemo(() => WEB_DASHBOARD_URL, [])
@@ -101,8 +140,9 @@ export function DashboardScreen() {
     const payload = JSON.stringify(entitlementFlags)
     return `
       (function () {
+        var IAP_DEBUG_ENABLED = ${IAP_DEBUG ? 'true' : 'false'};
         var emitIapDebug = function(step, message, payload) {
-          if (!window.ReactNativeWebView) return;
+          if (!IAP_DEBUG_ENABLED || !window.ReactNativeWebView) return;
           var debugPayload = JSON.stringify({ type: 'IAP_DEBUG_LOG', step: step, message: message, payload: payload || null });
           window.ReactNativeWebView.postMessage(debugPayload);
         };
@@ -114,6 +154,8 @@ export function DashboardScreen() {
         });
         window.__TIMETOSELL_NATIVE__ = window.__TIMETOSELL_NATIVE__ || {};
         window.__TIMETOSELL_NATIVE__.purchaseIndex = function(indexType) {
+          var tracePayload = { type: 'IAP_TRACE', stage: 'A', indexType: indexType, purchaseInProgress: !!window.__TIMETOSELL_PURCHASE_IN_PROGRESS__, targetIndexName: indexType };
+          if (window.ReactNativeWebView) window.ReactNativeWebView.postMessage(JSON.stringify(tracePayload));
           emitIapDebug('step-2', 'window.__TIMETOSELL_NATIVE__.purchaseIndex called', { indexType: indexType });
           if (!window.ReactNativeWebView) {
             emitIapDebug('step-3', 'PURCHASE_INDEX skipped because ReactNativeWebView is missing');
@@ -172,7 +214,7 @@ export function DashboardScreen() {
       injectEntitlementsToCurrentPage(flags)
     } catch (error) {
       logIapError('step-5', 'syncRevenueCatState failed', error)
-      console.error('[dashboard-webview] syncRevenueCatState failed', error)
+      if (WEBVIEW_DEBUG) console.error('[dashboard-webview] syncRevenueCatState failed', error)
       setCustomerInfo(null)
       injectEntitlementsToCurrentPage(buildEntitlementFlags(null))
     } finally {
@@ -208,6 +250,11 @@ export function DashboardScreen() {
 
       const data = JSON.parse(rawData) as { type?: string; indexType?: AppIndexType; step?: string; message?: string; payload?: unknown }
 
+      if (data.type === 'IAP_TRACE') {
+        console.log('[IAP_TRACE] webview bridge trace', data)
+        return
+      }
+
       if (data.type === 'IAP_DEBUG_LOG') {
         const suffix = data.payload === undefined || data.payload === null ? '' : ` ${JSON.stringify(data.payload)}`
         appendIapDebug(`[IAP] ${data.step ?? 'step-w'} ${data.message ?? 'web debug'}${suffix}`)
@@ -228,11 +275,17 @@ export function DashboardScreen() {
           `window.dispatchEvent(new CustomEvent('${PURCHASE_EVENT_NAME}', { detail: ${JSON.stringify({
             ok: unlocked,
             indexType: data.indexType,
-          })} })); true;`,
-        )
+            unlocked,
+            failureReason: failure.reason,
+            failureMessage,
+          })
+        } finally {
+          purchaseInProgressRef.current = false
+          console.log('[IAP_TRACE] purchaseInProgress released', { stage: 'H', purchaseInProgress: purchaseInProgressRef.current })
+        }
       } else if (data.type === 'RESTORE_PURCHASES') {
         appendIapDebug('[IAP] step-6b RESTORE_PURCHASES received')
-        const nextInfo = await restorePurchasesSafe(iapDebugLogger)
+        const nextInfo = await restorePurchasesSafe(IAP_DEBUG ? iapDebugLogger : undefined)
         setCustomerInfo(nextInfo)
         const flags = buildEntitlementFlags(nextInfo)
         injectEntitlementsToCurrentPage(flags)
@@ -244,7 +297,7 @@ export function DashboardScreen() {
       }
     } catch (error) {
       logIapError('step-4', 'message handling failed', error)
-      console.error('[dashboard-webview] message handling failed', error)
+      if (WEBVIEW_DEBUG) console.error('[dashboard-webview] message handling failed', error)
     }
   }, [appendIapDebug, iapDebugLogger, injectEntitlementsToCurrentPage, logIapError])
 
