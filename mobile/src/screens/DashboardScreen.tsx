@@ -28,7 +28,8 @@ const WEB_DASHBOARD_URL =
 
 const WEBVIEW_DEBUG = false
 
-const IAP_DEBUG = false
+const IAP_DEBUG = true
+const IAP_TRACE_MAX_LINES = 20
 
 const ALLOWED_HOSTS = new Set(['time-to-sell-web-ios.vercel.app'])
 
@@ -106,11 +107,18 @@ export function DashboardScreen() {
   const [isUnlocked, setIsUnlocked] = useState<boolean>(false)
   const [purchaseChecked, setPurchaseChecked] = useState<boolean>(false)
   const [iapDebugVisible, setIapDebugVisible] = useState<boolean>(IAP_DEBUG)
-  const [iapDebugLines, setIapDebugLines] = useState<string[]>([])
+  const [rcDebugLines, setRcDebugLines] = useState<string[]>([])
+  const [iapTraceLines, setIapTraceLines] = useState<string[]>([])
 
   const appendIapDebug = useCallback((line: string) => {
     if (!IAP_DEBUG) return
-    setIapDebugLines((prev) => [...prev, `${new Date().toLocaleTimeString()} ${line}`].slice(-20))
+    const safeLine = line.length > 200 ? `${line.slice(0, 200)}…` : line
+    const withTimestamp = `${new Date().toLocaleTimeString()} ${safeLine}`
+    if (safeLine.includes('RC DEBUG')) {
+      setRcDebugLines((prev) => [...prev, withTimestamp].slice(-IAP_TRACE_MAX_LINES))
+      return
+    }
+    setIapTraceLines((prev) => [...prev, withTimestamp].slice(-IAP_TRACE_MAX_LINES))
   }, [])
 
   const iapDebugLogger: IapDebugLogger = useCallback((line: string) => {
@@ -126,8 +134,7 @@ export function DashboardScreen() {
   const uri = useMemo(() => WEB_DASHBOARD_URL, [])
 
   const entitlementFlags = useMemo(() => buildEntitlementFlags(customerInfo), [customerInfo])
-  const rcDebugLines = useMemo(() => iapDebugLines.filter((line) => line.includes('RC DEBUG')), [iapDebugLines])
-  const nonRcDebugLines = useMemo(() => iapDebugLines.filter((line) => !line.includes('RC DEBUG')), [iapDebugLines])
+  const iapDebugCount = rcDebugLines.length + iapTraceLines.length
 
   const injectedBeforeContentLoad = useMemo(() => {
     const payload = JSON.stringify(entitlementFlags)
@@ -434,12 +441,18 @@ export function DashboardScreen() {
       {IAP_DEBUG && (
         <View style={styles.debugPanelWrapper}>
           <View style={styles.debugPanelHeader}>
-            <Text style={styles.debugPanelTitle}>IAP Debug ({iapDebugLines.length})</Text>
+            <Text style={styles.debugPanelTitle}>IAP Debug ({iapDebugCount})</Text>
             <View style={styles.debugPanelButtons}>
               <Pressable style={styles.debugButton} onPress={() => setIapDebugVisible((prev) => !prev)}>
                 <Text style={styles.debugButtonText}>{iapDebugVisible ? '閉じる' : '開く'}</Text>
               </Pressable>
-              <Pressable style={styles.debugButton} onPress={() => setIapDebugLines([])}>
+              <Pressable
+                style={styles.debugButton}
+                onPress={() => {
+                  setRcDebugLines([])
+                  setIapTraceLines([])
+                }}
+              >
                 <Text style={styles.debugButtonText}>ログ消去</Text>
               </Pressable>
             </View>
@@ -455,7 +468,7 @@ export function DashboardScreen() {
                   <Text style={styles.debugSectionTitle}>IAP TRACE</Text>
                 </>
               )}
-              {nonRcDebugLines.map((line, idx) => (
+              {iapTraceLines.map((line, idx) => (
                 <Text key={`${idx}-${line}`} style={styles.debugLine}>{line}</Text>
               ))}
             </ScrollView>

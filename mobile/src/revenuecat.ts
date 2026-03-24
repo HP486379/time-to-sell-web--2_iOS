@@ -208,6 +208,24 @@ function rcDebugLog(debugLogger: IapDebugLogger | undefined, message: string, va
   debugLogger?.(`RC DEBUG ${message}=${typeof value === 'string' ? value : JSON.stringify(value)}`)
 }
 
+function sanitizeDebugValue(value: unknown, maxLength = 200): string {
+  const text = value === undefined || value === null ? '' : String(value)
+  return text.length > maxLength ? `${text.slice(0, maxLength)}…` : text
+}
+
+function rcDebugLog(debugLogger: IapDebugLogger | undefined, message: string, value?: unknown) {
+  const safeMessage = sanitizeDebugValue(message, 80)
+  const safeValue = value === undefined ? undefined : sanitizeDebugValue(value, 200)
+  if (safeValue === undefined) {
+    console.log(`[RC_DEBUG] ${safeMessage}`)
+    debugLogger?.(`RC DEBUG ${safeMessage}`)
+    return
+  }
+
+  console.log(`[RC_DEBUG] ${safeMessage}:`, safeValue)
+  debugLogger?.(`RC DEBUG ${safeMessage}=${safeValue}`)
+}
+
 export async function configureRevenueCat(debugLogger?: IapDebugLogger): Promise<boolean> {
   console.log('[RC_DEBUG] executionEnvironment:', Constants.executionEnvironment)
   console.log('[RC_DEBUG] isDevice:', Constants.isDevice)
@@ -295,11 +313,7 @@ export async function configureRevenueCat(debugLogger?: IapDebugLogger): Promise
 
   try {
     iapLog('step-7', 'configureRevenueCat start', { keyPrefix, apiKey: IOS_PUBLIC_SDK_KEY }, debugLogger)
-    rcDebugLog(debugLogger, 'typeofPurchases', typeof Purchases)
-    rcDebugLog(debugLogger, 'purchasesKeys', Object.keys(Purchases).join(','))
     rcDebugLog(debugLogger, 'configure', 'start')
-    console.log('[RC_DEBUG] typeof Purchases:', typeof Purchases)
-    console.log('[RC_DEBUG] Purchases keys:', Object.keys(Purchases))
     console.log('[RC_DEBUG] calling Purchases.configure with key:', IOS_PUBLIC_SDK_KEY)
     await Purchases.configure({ apiKey: IOS_PUBLIC_SDK_KEY })
     console.log('[RC_DEBUG] Purchases.configure called')
@@ -307,15 +321,23 @@ export async function configureRevenueCat(debugLogger?: IapDebugLogger): Promise
     rcDebugLog(debugLogger, 'configure', 'done')
     console.log('[RC_DEBUG] calling getOfferings')
     rcDebugLog(debugLogger, 'getOfferings', 'start')
-    const offerings = await Purchases.getOfferings()
-    console.log('[RC_DEBUG] offerings result:', offerings)
-    rcDebugLog(debugLogger, 'getOfferings', offerings)
+    await Purchases.getOfferings()
+    console.log('[RC_DEBUG] offerings result: success')
+    rcDebugLog(debugLogger, 'getOfferings', 'success')
     configured = true
     iapLog('step-7', 'configureRevenueCat success', undefined, debugLogger)
     debugConsoleLog('[revenuecat] configured successfully')
     return true
   } catch (error) {
-    rcDebugLog(debugLogger, 'error', formatRevenueCatErrorDetails(error))
+    const errorDetails = (typeof error === 'object' && error !== null ? error : {}) as {
+      code?: unknown
+      domain?: unknown
+      message?: unknown
+    }
+    rcDebugLog(debugLogger, 'getOfferings', 'failed')
+    rcDebugLog(debugLogger, 'errorCode', errorDetails.code)
+    rcDebugLog(debugLogger, 'errorDomain', errorDetails.domain)
+    rcDebugLog(debugLogger, 'errorMessage', errorDetails.message ?? formatErrorMessage(error))
     iapError('step-7', 'configureRevenueCat failed', error, debugLogger)
     iapLog(
       'step-7',
