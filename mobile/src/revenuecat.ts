@@ -372,7 +372,7 @@ export async function configureRevenueCat(debugLogger?: IapDebugLogger): Promise
 export async function getCustomerInfoSafe(debugLogger?: IapDebugLogger): Promise<CustomerInfo | null> {
   if (!configured) return null
   try {
-    iapLog('step-11', 'getCustomerInfoSafe start', { configureOk: ok }, debugLogger)
+    iapLog('step-11', 'getCustomerInfoSafe start', {}, debugLogger)
     const customerInfo = await Purchases.getCustomerInfo()
     iapLog('step-11', 'getCustomerInfoSafe success', { activeEntitlements: Object.keys(customerInfo.entitlements.active) }, debugLogger)
     return customerInfo
