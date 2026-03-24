@@ -204,9 +204,14 @@ export function DashboardScreen() {
     try {
       appendIapDebug('[IAP] step-5 syncRevenueCatState started')
       await getDefaultOfferingSafe(iapDebugLogger)
+      appendIapDebug('[IAP] step-5 getCustomerInfo started')
       const info = await getCustomerInfoSafe(iapDebugLogger)
+      appendIapDebug(`[IAP] step-5 getCustomerInfo success hasInfo=${String(!!info)}`)
+      appendIapDebug(`[IAP] step-5 active entitlements keys=${Object.keys(info?.entitlements.active ?? {}).join(',')}`)
       setCustomerInfo(info)
-      injectEntitlementsToCurrentPage(buildEntitlementFlags(info))
+      const flags = buildEntitlementFlags(info)
+      appendIapDebug(`[IAP] step-5 sync flags to WebView/React state=${JSON.stringify(flags)}`)
+      injectEntitlementsToCurrentPage(flags)
     } catch (error) {
       logIapError('step-5', 'syncRevenueCatState failed', error)
       if (WEBVIEW_DEBUG) console.error('[dashboard-webview] syncRevenueCatState failed', error)
@@ -258,65 +263,17 @@ export function DashboardScreen() {
 
       if (data.type === 'PURCHASE_INDEX' && data.indexType) {
         appendIapDebug(`[IAP] step-6 PURCHASE_INDEX received indexType=${data.indexType}`)
-        console.log('[IAP_TRACE] purchase button path entered', {
-          stage: 'A',
-          indexType: data.indexType,
-          purchaseInProgress: purchaseInProgressRef.current,
-          targetIndexName: data.indexType,
-        })
-        console.log('[IAP_TRACE] purchase request received', {
-          stage: 'B',
-          indexType: data.indexType,
-          confirmResult: 'user_confirmed_inferred_by_PURCHASE_INDEX_message',
-          earlyReturnAfterConfirm: false,
-          purchaseInProgress: purchaseInProgressRef.current,
-        })
-        purchaseInProgressRef.current = true
-
-        try {
-          const nextInfo = await purchaseIndex(data.indexType, IAP_DEBUG ? iapDebugLogger : undefined)
-          appendIapDebug(`[IAP] step-10 purchaseIndex resolved hasCustomerInfo=${String(!!nextInfo)}`)
-          setCustomerInfo(nextInfo)
-          const flags = buildEntitlementFlags(nextInfo)
-          injectEntitlementsToCurrentPage(flags)
-          const unlocked = isIndexUnlocked(data.indexType, nextInfo)
-          const failure = getLastPurchaseFailure()
-          const failureMessage = unlocked ? undefined : failure.message
-          const traceSnapshot = getLastPurchaseTraceSnapshot()
-
-          if (!unlocked && failure.reason !== 'none') {
-            if (failure.reason === 'user_cancelled') {
-              Alert.alert('IAP TRACE', 'IAP_TRACE_UI\nstep=purchase_catch\nreason=user_cancelled')
-            } else {
-              showIapTraceFailureAlert({
-                step: traceSnapshot.step,
-                failureReason: failure.reason,
-                offeringsStatus: traceSnapshot.offeringsStatus,
-                pkgCount: traceSnapshot.pkgCount,
-                availablePackageIdentifiers: traceSnapshot.availablePackageIdentifiers,
-                targetPackageIdentifier: traceSnapshot.targetPackageIdentifier,
-                targetProductIdentifier: traceSnapshot.targetProductIdentifier,
-                offeringErrorCode: traceSnapshot.offeringErrorCode,
-                offeringErrorDomain: traceSnapshot.offeringErrorDomain,
-                offeringErrorUserInfo: traceSnapshot.offeringErrorUserInfo,
-                offeringErrorMessage: traceSnapshot.offeringErrorMessage,
-                offeringUnderlyingErrorMessage: traceSnapshot.offeringUnderlyingErrorMessage,
-                iosPublicSdkKeyPrefix: traceSnapshot.iosPublicSdkKeyPrefix,
-                iosPublicSdkKeySource: traceSnapshot.iosPublicSdkKeySource,
-              })
-            }
-          }
-
-          webRef.current?.injectJavaScript(
-            `window.dispatchEvent(new CustomEvent('${PURCHASE_EVENT_NAME}', { detail: ${JSON.stringify({
-              ok: unlocked,
-              indexType: data.indexType,
-              failureReason: failure.reason,
-              failureMessage,
-            })} })); true;`,
-          )
-          console.log('[IAP_TRACE] purchase result dispatched', {
-            stage: 'F',
+        const nextInfo = await purchaseIndex(data.indexType, iapDebugLogger)
+        appendIapDebug(`[IAP] step-10 purchaseIndex resolved hasCustomerInfo=${String(!!nextInfo)}`)
+        appendIapDebug(`[IAP] step-10 purchase active entitlements keys=${Object.keys(nextInfo?.entitlements.active ?? {}).join(',')}`)
+        setCustomerInfo(nextInfo)
+        const flags = buildEntitlementFlags(nextInfo)
+        appendIapDebug(`[IAP] step-10 purchase flags to WebView/React state=${JSON.stringify(flags)}`)
+        injectEntitlementsToCurrentPage(flags)
+        const unlocked = isIndexUnlocked(data.indexType, nextInfo)
+        webRef.current?.injectJavaScript(
+          `window.dispatchEvent(new CustomEvent('${PURCHASE_EVENT_NAME}', { detail: ${JSON.stringify({
+            ok: unlocked,
             indexType: data.indexType,
             unlocked,
             failureReason: failure.reason,
