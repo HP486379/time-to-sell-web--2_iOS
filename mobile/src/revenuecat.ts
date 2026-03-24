@@ -1,20 +1,6 @@
 import Constants from 'expo-constants'
 import Purchases, { LOG_LEVEL, type CustomerInfo, type PurchasesOffering, type PurchasesPackage } from 'react-native-purchases'
 
-const constantsWithLegacyManifest = Constants as typeof Constants & {
-  manifest?: { extra?: Record<string, unknown> }
-}
-
-const runtimeExtra =
-  (Constants.expoConfig?.extra as Record<string, unknown> | undefined) ??
-  constantsWithLegacyManifest.manifest?.extra ??
-  {}
-
-const IOS_PUBLIC_SDK_KEY_CANDIDATES = {
-  expoConfigExtra: (Constants.expoConfig?.extra as { revenuecatPublicApiKey?: unknown } | undefined)?.revenuecatPublicApiKey,
-  manifestExtra: (constantsWithLegacyManifest.manifest?.extra as { revenuecatPublicApiKey?: unknown } | undefined)?.revenuecatPublicApiKey,
-} as const
-
 const IOS_PUBLIC_SDK_KEY =
   (typeof IOS_PUBLIC_SDK_KEY_CANDIDATES.expoConfigExtra === 'string' && IOS_PUBLIC_SDK_KEY_CANDIDATES.expoConfigExtra) ||
   (typeof IOS_PUBLIC_SDK_KEY_CANDIDATES.manifestExtra === 'string' && IOS_PUBLIC_SDK_KEY_CANDIDATES.manifestExtra) ||
@@ -198,12 +184,40 @@ function iapError(step: string, message: string, error: unknown, debugLogger?: I
   if (IAP_DEBUG_ENABLED) debugLogger?.(text)
 }
 
+function formatRevenueCatErrorDetails(error: unknown): string {
+  if (typeof error !== 'object' || error === null) {
+    return `message=${formatErrorMessage(error)}`
+  }
+
+  const details = error as { message?: unknown; code?: unknown; domain?: unknown }
+  return [
+    `message=${details.message === undefined ? '' : String(details.message)}`,
+    `code=${details.code === undefined ? '' : String(details.code)}`,
+    `domain=${details.domain === undefined ? '' : String(details.domain)}`,
+  ].join(' ')
+}
+
+function rcDebugLog(debugLogger: IapDebugLogger | undefined, message: string, value?: unknown) {
+  if (value === undefined) {
+    console.log(`[RC_DEBUG] ${message}`)
+    debugLogger?.(`RC DEBUG ${message}`)
+    return
+  }
+
+  console.log(`[RC_DEBUG] ${message}`, value)
+  debugLogger?.(`RC DEBUG ${message}=${typeof value === 'string' ? value : JSON.stringify(value)}`)
+}
+
 export async function configureRevenueCat(debugLogger?: IapDebugLogger): Promise<boolean> {
   console.log('[RC_DEBUG] executionEnvironment:', Constants.executionEnvironment)
   console.log('[RC_DEBUG] isDevice:', Constants.isDevice)
   console.log('[RC_DEBUG] __DEV__:', __DEV__)
+  rcDebugLog(debugLogger, 'executionEnvironment', String(Constants.executionEnvironment ?? ''))
+  rcDebugLog(debugLogger, 'isDevice', String(Constants.isDevice))
+  rcDebugLog(debugLogger, '__DEV__', String(__DEV__))
   if (!Constants.executionEnvironment || Constants.executionEnvironment === 'storeClient') {
     console.warn('[RC_DEBUG] POSSIBLE EXPO GO / PREVIEW MODE')
+    rcDebugLog(debugLogger, 'warning', 'POSSIBLE EXPO GO / PREVIEW MODE')
   }
   Purchases.setLogLevel(LOG_LEVEL.DEBUG)
 
@@ -281,20 +295,27 @@ export async function configureRevenueCat(debugLogger?: IapDebugLogger): Promise
 
   try {
     iapLog('step-7', 'configureRevenueCat start', { keyPrefix, apiKey: IOS_PUBLIC_SDK_KEY }, debugLogger)
+    rcDebugLog(debugLogger, 'typeofPurchases', typeof Purchases)
+    rcDebugLog(debugLogger, 'purchasesKeys', Object.keys(Purchases).join(','))
+    rcDebugLog(debugLogger, 'configure', 'start')
     console.log('[RC_DEBUG] typeof Purchases:', typeof Purchases)
     console.log('[RC_DEBUG] Purchases keys:', Object.keys(Purchases))
     console.log('[RC_DEBUG] calling Purchases.configure with key:', IOS_PUBLIC_SDK_KEY)
     await Purchases.configure({ apiKey: IOS_PUBLIC_SDK_KEY })
     console.log('[RC_DEBUG] Purchases.configure called')
     console.log('[RC_DEBUG] configure done')
+    rcDebugLog(debugLogger, 'configure', 'done')
     console.log('[RC_DEBUG] calling getOfferings')
+    rcDebugLog(debugLogger, 'getOfferings', 'start')
     const offerings = await Purchases.getOfferings()
     console.log('[RC_DEBUG] offerings result:', offerings)
+    rcDebugLog(debugLogger, 'getOfferings', offerings)
     configured = true
     iapLog('step-7', 'configureRevenueCat success', undefined, debugLogger)
     debugConsoleLog('[revenuecat] configured successfully')
     return true
   } catch (error) {
+    rcDebugLog(debugLogger, 'error', formatRevenueCatErrorDetails(error))
     iapError('step-7', 'configureRevenueCat failed', error, debugLogger)
     iapLog(
       'step-7',
