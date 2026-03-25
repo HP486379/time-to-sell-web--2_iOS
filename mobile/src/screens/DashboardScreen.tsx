@@ -28,7 +28,8 @@ const WEBVIEW_DEBUG =
   (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env
     ?.EXPO_PUBLIC_WEBVIEW_DEBUG === '1'
 
-const IAP_DEBUG = true
+const SHOW_IAP_DEBUG = false
+const IAP_TRACE_MAX_LINES = 20
 
 const ALLOWED_HOSTS = new Set(['time-to-sell-web-ios.vercel.app'])
 
@@ -58,6 +59,8 @@ function isAllowedInWebView(url: string): boolean {
 
 export function DashboardScreen() {
   const webRef = useRef<WebView>(null)
+  const latestStateAppliedAtRef = useRef<number>(0)
+  const syncRequestIdRef = useRef<number>(0)
   const [webViewKey, setWebViewKey] = useState(0)
   const [isLoading, setIsLoading] = useState(true)
   const [hasError, setHasError] = useState(false)
@@ -66,12 +69,19 @@ export function DashboardScreen() {
 
   const [isUnlocked, setIsUnlocked] = useState<boolean>(false)
   const [purchaseChecked, setPurchaseChecked] = useState<boolean>(false)
-  const [iapDebugVisible, setIapDebugVisible] = useState<boolean>(IAP_DEBUG)
-  const [iapDebugLines, setIapDebugLines] = useState<string[]>([])
+  const [iapDebugVisible, setIapDebugVisible] = useState<boolean>(SHOW_IAP_DEBUG)
+  const [rcDebugLines, setRcDebugLines] = useState<string[]>([])
+  const [iapTraceLines, setIapTraceLines] = useState<string[]>([])
 
   const appendIapDebug = useCallback((line: string) => {
-    if (!IAP_DEBUG) return
-    setIapDebugLines((prev) => [...prev, `${new Date().toLocaleTimeString()} ${line}`].slice(-20))
+    if (!SHOW_IAP_DEBUG) return
+    const safeLine = line.length > 200 ? `${line.slice(0, 200)}…` : line
+    const withTimestamp = `${new Date().toLocaleTimeString()} ${safeLine}`
+    if (safeLine.includes('RC DEBUG')) {
+      setRcDebugLines((prev) => [...prev, withTimestamp].slice(-IAP_TRACE_MAX_LINES))
+      return
+    }
+    setIapTraceLines((prev) => [...prev, withTimestamp].slice(-IAP_TRACE_MAX_LINES))
   }, [])
 
   const iapDebugLogger: IapDebugLogger = useCallback((line: string) => {
@@ -87,6 +97,7 @@ export function DashboardScreen() {
   const uri = useMemo(() => WEB_DASHBOARD_URL, [])
 
   const entitlementFlags = useMemo(() => buildEntitlementFlags(customerInfo), [customerInfo])
+  const iapDebugCount = rcDebugLines.length + iapTraceLines.length
 
   const injectedBeforeContentLoad = useMemo(() => {
     const payload = JSON.stringify(entitlementFlags)
@@ -150,22 +161,29 @@ export function DashboardScreen() {
   }, [])
 
   const syncRevenueCatState = useCallback(async () => {
+    const syncRequestId = ++syncRequestIdRef.current
+    const syncStartedAt = Date.now()
     try {
       appendIapDebug('[IAP] step-5 syncRevenueCatState started')
-      const configured = await configureRevenueCat(iapDebugLogger)
-      if (!configured) {
-        appendIapDebug('[IAP] step-5 configureRevenueCat failed, fallback to free entitlements')
-        console.error('[dashboard-webview] RevenueCat configure failed. fallback to free entitlements')
-        setCustomerInfo(null)
-        injectEntitlementsToCurrentPage(buildEntitlementFlags(null))
+      await getDefaultOfferingSafe(iapDebugLogger)
+      appendIapDebug('[IAP] step-5 getCustomerInfo started')
+      const info = await getCustomerInfoSafe(iapDebugLogger)
+      appendIapDebug(`[IAP] step-5 getCustomerInfo success hasInfo=${String(!!info)}`)
+      appendIapDebug(`[IAP] step-5 active entitlements keys=${Object.keys(info?.entitlements.active ?? {}).join(',')}`)
+      if (syncRequestId !== syncRequestIdRef.current) {
+        appendIapDebug('[IAP] step-5 syncRevenueCatState skipped because newer sync request exists')
         return
       }
-
-      appendIapDebug('[IAP] step-5 configureRevenueCat succeeded')
-      await getDefaultOfferingSafe(iapDebugLogger)
-      const info = await getCustomerInfoSafe(iapDebugLogger)
+      if (syncStartedAt < latestStateAppliedAtRef.current) {
+        appendIapDebug('[IAP] step-5 syncRevenueCatState skipped because purchase state is newer')
+        return
+      }
       setCustomerInfo(info)
-      injectEntitlementsToCurrentPage(buildEntitlementFlags(info))
+      const flags = buildEntitlementFlags(info)
+      appendIapDebug(`[IAP] step-5 sync flags to WebView/React state=${JSON.stringify(flags)}`)
+      injectEntitlementsToCurrentPage(flags)
+      latestStateAppliedAtRef.current = Date.now()
+      appendIapDebug('[IAP] step-5 syncRevenueCatState applied latest flags')
     } catch (error) {
       logIapError('step-5', 'syncRevenueCatState failed', error)
       console.error('[dashboard-webview] syncRevenueCatState failed', error)
@@ -175,6 +193,10 @@ export function DashboardScreen() {
       setPurchaseChecked(true)
     }
   }, [appendIapDebug, iapDebugLogger, injectEntitlementsToCurrentPage, logIapError])
+
+  useEffect(() => {
+    void configureRevenueCat(iapDebugLogger)
+  }, [])
 
   useEffect(() => {
     void syncRevenueCatState()
@@ -210,25 +232,48 @@ export function DashboardScreen() {
         appendIapDebug(`[IAP] step-6 PURCHASE_INDEX received indexType=${data.indexType}`)
         const nextInfo = await purchaseIndex(data.indexType, iapDebugLogger)
         appendIapDebug(`[IAP] step-10 purchaseIndex resolved hasCustomerInfo=${String(!!nextInfo)}`)
+        appendIapDebug(`[IAP] step-10 purchase active entitlements keys=${Object.keys(nextInfo?.entitlements.active ?? {}).join(',')}`)
+        latestStateAppliedAtRef.current = Date.now()
         setCustomerInfo(nextInfo)
-        const flags = buildEntitlementFlags(nextInfo)
-        injectEntitlementsToCurrentPage(flags)
-        const unlocked = isIndexUnlocked(data.indexType, nextInfo)
-        webRef.current?.injectJavaScript(
-          `window.dispatchEvent(new CustomEvent('${PURCHASE_EVENT_NAME}', { detail: ${JSON.stringify({
-            ok: unlocked,
-            indexType: data.indexType,
-          })} })); true;`,
-        )
+        const latestFlags = buildEntitlementFlags(nextInfo)
+        appendIapDebug(`[IAP] step-10 purchase success latest flags=${JSON.stringify(latestFlags)}`)
+        injectEntitlementsToCurrentPage(latestFlags)
+
+        await new Promise((resolve) => setTimeout(resolve, 400))
+        const secondInfo = await getCustomerInfoSafe(iapDebugLogger)
+        const secondFlags = buildEntitlementFlags(secondInfo)
+        appendIapDebug(`[IAP] step-10 purchase success second fetch flags=${JSON.stringify(secondFlags)}`)
+        latestStateAppliedAtRef.current = Date.now()
+        setCustomerInfo(secondInfo)
+        injectEntitlementsToCurrentPage(secondFlags)
+
+        const finalInfo = secondInfo ?? nextInfo
+        const unlocked = isIndexUnlocked(data.indexType, finalInfo)
+        webRef.current?.injectJavaScript(`
+          window.dispatchEvent(
+            new CustomEvent(${JSON.stringify(PURCHASE_EVENT_NAME)}, {
+              detail: ${JSON.stringify({
+                ok: unlocked,
+                indexType: data.indexType,
+              })}
+            })
+          );
+          true;
+        `)
       } else if (data.type === 'RESTORE_PURCHASES') {
         appendIapDebug('[IAP] step-6b RESTORE_PURCHASES received')
         const nextInfo = await restorePurchasesSafe(iapDebugLogger)
         setCustomerInfo(nextInfo)
         const flags = buildEntitlementFlags(nextInfo)
         injectEntitlementsToCurrentPage(flags)
-        webRef.current?.injectJavaScript(
-          `window.dispatchEvent(new CustomEvent('${RESTORE_EVENT_NAME}', { detail: ${JSON.stringify({ ok: true })} })); true;`,
-        )
+        webRef.current?.injectJavaScript(`
+          window.dispatchEvent(
+            new CustomEvent(${JSON.stringify(RESTORE_EVENT_NAME)}, {
+              detail: ${JSON.stringify({ ok: true })}
+            })
+          );
+          true;
+        `)
       } else {
         appendIapDebug(`[IAP] step-6 message ignored type=${String(data.type)}`)
       }
@@ -332,22 +377,37 @@ export function DashboardScreen() {
         </View>
       )}
 
-      {IAP_DEBUG && (
+      {SHOW_IAP_DEBUG && (
         <View style={styles.debugPanelWrapper}>
           <View style={styles.debugPanelHeader}>
-            <Text style={styles.debugPanelTitle}>IAP Debug ({iapDebugLines.length})</Text>
+            <Text style={styles.debugPanelTitle}>IAP Debug ({iapDebugCount})</Text>
             <View style={styles.debugPanelButtons}>
               <Pressable style={styles.debugButton} onPress={() => setIapDebugVisible((prev) => !prev)}>
                 <Text style={styles.debugButtonText}>{iapDebugVisible ? '閉じる' : '開く'}</Text>
               </Pressable>
-              <Pressable style={styles.debugButton} onPress={() => setIapDebugLines([])}>
+              <Pressable
+                style={styles.debugButton}
+                onPress={() => {
+                  setRcDebugLines([])
+                  setIapTraceLines([])
+                }}
+              >
                 <Text style={styles.debugButtonText}>ログ消去</Text>
               </Pressable>
             </View>
           </View>
           {iapDebugVisible && (
             <ScrollView style={styles.debugPanelBody}>
-              {iapDebugLines.map((line, idx) => (
+              {rcDebugLines.length > 0 && (
+                <>
+                  <Text style={styles.debugSectionTitle}>RC DEBUG</Text>
+                  {rcDebugLines.map((line, idx) => (
+                    <Text key={`rc-${idx}-${line}`} style={styles.debugLine}>{line}</Text>
+                  ))}
+                  <Text style={styles.debugSectionTitle}>IAP TRACE</Text>
+                </>
+              )}
+              {iapTraceLines.map((line, idx) => (
                 <Text key={`${idx}-${line}`} style={styles.debugLine}>{line}</Text>
               ))}
             </ScrollView>
@@ -403,5 +463,6 @@ const styles = StyleSheet.create({
   debugButton: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, backgroundColor: '#374151' },
   debugButtonText: { color: '#F9FAFB', fontSize: 11, fontWeight: '600' },
   debugPanelBody: { borderTopWidth: 1, borderTopColor: '#374151', paddingHorizontal: 10, paddingVertical: 8, maxHeight: 170 },
+  debugSectionTitle: { color: '#FDE68A', fontSize: 11, fontWeight: '700', marginBottom: 6 },
   debugLine: { color: '#D1D5DB', fontSize: 10, marginBottom: 4 },
 })
