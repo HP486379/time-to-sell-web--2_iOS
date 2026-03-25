@@ -28,7 +28,7 @@ const WEB_DASHBOARD_URL =
 
 const WEBVIEW_DEBUG = false
 
-const IAP_DEBUG = true
+const SHOW_IAP_DEBUG = false
 const IAP_TRACE_MAX_LINES = 20
 
 const ALLOWED_HOSTS = new Set(['time-to-sell-web-ios.vercel.app'])
@@ -107,12 +107,12 @@ export function DashboardScreen() {
 
   const [isUnlocked, setIsUnlocked] = useState<boolean>(false)
   const [purchaseChecked, setPurchaseChecked] = useState<boolean>(false)
-  const [iapDebugVisible, setIapDebugVisible] = useState<boolean>(IAP_DEBUG)
+  const [iapDebugVisible, setIapDebugVisible] = useState<boolean>(SHOW_IAP_DEBUG)
   const [rcDebugLines, setRcDebugLines] = useState<string[]>([])
   const [iapTraceLines, setIapTraceLines] = useState<string[]>([])
 
   const appendIapDebug = useCallback((line: string) => {
-    if (!IAP_DEBUG) return
+    if (!SHOW_IAP_DEBUG) return
     const safeLine = line.length > 200 ? `${line.slice(0, 200)}…` : line
     const withTimestamp = `${new Date().toLocaleTimeString()} ${safeLine}`
     if (safeLine.includes('RC DEBUG')) {
@@ -423,7 +423,7 @@ export function DashboardScreen() {
         </View>
       )}
 
-      {IAP_DEBUG && (
+      {SHOW_IAP_DEBUG && (
         <View style={styles.debugPanelWrapper}>
           <View style={styles.debugPanelHeader}>
             <Text style={styles.debugPanelTitle}>IAP Debug ({iapDebugCount})</Text>
