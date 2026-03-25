@@ -15,10 +15,27 @@ npm install
 EXPO_PUBLIC_API_BASE_URL=https://time-to-sell-web-2.vercel.app
 EXPO_PUBLIC_BACKEND_URL=https://time-to-sell-web-ios.onrender.com
 EXPO_PUBLIC_DASHBOARD_URL=https://time-to-sell-web-ios.vercel.app/
-EXPO_PUBLIC_REVENUECAT_IOS_PUBLIC_SDK_KEY=appl_xxx
 # 任意: WebView ログ
 EXPO_PUBLIC_WEBVIEW_DEBUG=1
 ```
+
+> **RevenueCat iOS Public SDK Key について**
+> `.env` に `EXPO_PUBLIC_REVENUECAT_IOS_*` 系の変数を設定しないでください。Expo/EAS がビルド時に自動注入し、意図しないキーが使われて `Invalid API Key` エラー（rc_backend_error_code=7225）の原因になります。
+>
+> iOS Public SDK Key の唯一の正式な設定場所は `mobile/app.json` の `expo.extra.revenuecatPublicApiKey` です。
+>
+> ```json
+> // mobile/app.json
+> {
+>   "expo": {
+>     "extra": {
+>       "revenuecatPublicApiKey": "appl_xxx"
+>     }
+>   }
+> }
+> ```
+>
+> コード側（`mobile/src/revenuecat.ts`）は `Constants.expoConfig.extra.revenuecatPublicApiKey` からキーを読み込みます。
 
 ## 実装メモ
 
