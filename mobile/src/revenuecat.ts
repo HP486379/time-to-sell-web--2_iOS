@@ -1,13 +1,7 @@
 import Constants from 'expo-constants'
 import Purchases, { LOG_LEVEL, type CustomerInfo, type PurchasesOffering, type PurchasesPackage } from 'react-native-purchases'
 
-const runtimeExtra = (Constants.expoConfig?.extra ?? {}) as Record<string, unknown>
-const IOS_PUBLIC_SDK_KEY_CANDIDATES = [
-  typeof runtimeExtra.revenuecatPublicApiKey === 'string' ? runtimeExtra.revenuecatPublicApiKey : undefined,
-  typeof runtimeExtra.EXPO_PUBLIC_REVENUECAT_IOS_API_KEY === 'string' ? runtimeExtra.EXPO_PUBLIC_REVENUECAT_IOS_API_KEY : undefined,
-  (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env?.EXPO_PUBLIC_REVENUECAT_IOS_API_KEY,
-]
-const IOS_PUBLIC_SDK_KEY = IOS_PUBLIC_SDK_KEY_CANDIDATES.find((candidate) => typeof candidate === 'string' && candidate.length > 0) ?? ''
+const IOS_PUBLIC_SDK_KEY = Constants.expoConfig?.extra?.revenuecatPublicApiKey ?? ''
 
 export type AppIndexType = 'SP500' | 'sp500_jpy' | 'TOPIX' | 'NIKKEI' | 'NIFTY50' | 'ORUKAN' | 'orukan_jpy'
 
@@ -250,6 +244,25 @@ function rcDebugLog(debugLogger: IapDebugLogger | undefined, message: string, va
   debugLogger?.(`RC DEBUG ${safeMessage}=${safeValue}`)
 }
 
+function sanitizeDebugValue(value: unknown, maxLength = 200): string {
+  const text = value === undefined || value === null ? '' : String(value)
+  return text.length > maxLength ? `${text.slice(0, maxLength)}…` : text
+}
+
+function rcDebugLog(debugLogger: IapDebugLogger | undefined, message: string, value?: unknown) {
+  const safeMessage = sanitizeDebugValue(message, 80)
+  const safeValue = value === undefined ? undefined : sanitizeDebugValue(value, 200)
+  if (safeValue === undefined) {
+    console.log(`[RC_DEBUG] ${safeMessage}`)
+    debugLogger?.(`RC DEBUG ${safeMessage}`)
+    return
+  }
+
+  console.log(`[RC_DEBUG] ${safeMessage}:`, safeValue)
+  debugLogger?.(`RC DEBUG ${safeMessage}=${safeValue}`)
+}
+
+// Keep exactly one sanitizeDebugValue helper in this module.
 function sanitizeDebugValue(value: unknown, maxLength = 200): string {
   const text = value === undefined || value === null ? '' : String(value)
   return text.length > maxLength ? `${text.slice(0, maxLength)}…` : text
@@ -611,18 +624,9 @@ export async function purchaseIndex(indexType: AppIndexType, debugLogger?: IapDe
     }
 
     const canMakePaymentsResult = await Purchases.canMakePayments()
-    iapTrace('canMakePayments checked', { canMakePaymentsResult })
-
+    iapLog('step-10', 'canMakePayments result', { canMakePayments: canMakePaymentsResult }, debugLogger)
     if (!canMakePaymentsResult) {
-      setLastPurchaseFailureReason('store_unavailable')
-      setPurchaseTraceSnapshot({ step: 'can_make_payments', failureReason: 'store_unavailable' })
-      iapTrace('store unavailable / cannot make payments', { indexType, entitlementId })
-      iapError(
-        'step-10',
-        'purchase blocked because canMakePayments=false',
-        new Error('StoreKit payments are disabled on this device/account'),
-        debugLogger,
-      )
+      iapError('step-10', 'purchase blocked because canMakePayments=false', new Error('StoreKit payments are disabled on this device/account'), debugLogger)
       return await getCustomerInfoSafe(debugLogger)
     }
     await Purchases.purchasePackage(targetPackage)

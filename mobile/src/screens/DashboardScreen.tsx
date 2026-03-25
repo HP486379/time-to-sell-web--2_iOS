@@ -97,7 +97,8 @@ function isAllowedInWebView(url: string): boolean {
 
 export function DashboardScreen() {
   const webRef = useRef<WebView>(null)
-  const purchaseInProgressRef = useRef(false)
+  const latestStateAppliedAtRef = useRef<number>(0)
+  const syncRequestIdRef = useRef<number>(0)
   const [webViewKey, setWebViewKey] = useState(0)
   const [isLoading, setIsLoading] = useState(true)
   const [hasError, setHasError] = useState(false)
@@ -201,6 +202,8 @@ export function DashboardScreen() {
   }, [])
 
   const syncRevenueCatState = useCallback(async () => {
+    const syncRequestId = ++syncRequestIdRef.current
+    const syncStartedAt = Date.now()
     try {
       appendIapDebug('[IAP] step-5 syncRevenueCatState started')
       await getDefaultOfferingSafe(iapDebugLogger)
@@ -208,10 +211,20 @@ export function DashboardScreen() {
       const info = await getCustomerInfoSafe(iapDebugLogger)
       appendIapDebug(`[IAP] step-5 getCustomerInfo success hasInfo=${String(!!info)}`)
       appendIapDebug(`[IAP] step-5 active entitlements keys=${Object.keys(info?.entitlements.active ?? {}).join(',')}`)
+      if (syncRequestId !== syncRequestIdRef.current) {
+        appendIapDebug('[IAP] step-5 syncRevenueCatState skipped because newer sync request exists')
+        return
+      }
+      if (syncStartedAt < latestStateAppliedAtRef.current) {
+        appendIapDebug('[IAP] step-5 syncRevenueCatState skipped because purchase state is newer')
+        return
+      }
       setCustomerInfo(info)
       const flags = buildEntitlementFlags(info)
       appendIapDebug(`[IAP] step-5 sync flags to WebView/React state=${JSON.stringify(flags)}`)
       injectEntitlementsToCurrentPage(flags)
+      latestStateAppliedAtRef.current = Date.now()
+      appendIapDebug('[IAP] step-5 syncRevenueCatState applied latest flags')
     } catch (error) {
       logIapError('step-5', 'syncRevenueCatState failed', error)
       if (WEBVIEW_DEBUG) console.error('[dashboard-webview] syncRevenueCatState failed', error)
@@ -266,11 +279,22 @@ export function DashboardScreen() {
         const nextInfo = await purchaseIndex(data.indexType, iapDebugLogger)
         appendIapDebug(`[IAP] step-10 purchaseIndex resolved hasCustomerInfo=${String(!!nextInfo)}`)
         appendIapDebug(`[IAP] step-10 purchase active entitlements keys=${Object.keys(nextInfo?.entitlements.active ?? {}).join(',')}`)
+        latestStateAppliedAtRef.current = Date.now()
         setCustomerInfo(nextInfo)
-        const flags = buildEntitlementFlags(nextInfo)
-        appendIapDebug(`[IAP] step-10 purchase flags to WebView/React state=${JSON.stringify(flags)}`)
-        injectEntitlementsToCurrentPage(flags)
-        const unlocked = isIndexUnlocked(data.indexType, nextInfo)
+        const latestFlags = buildEntitlementFlags(nextInfo)
+        appendIapDebug(`[IAP] step-10 purchase success latest flags=${JSON.stringify(latestFlags)}`)
+        injectEntitlementsToCurrentPage(latestFlags)
+
+        await new Promise((resolve) => setTimeout(resolve, 400))
+        const secondInfo = await getCustomerInfoSafe(iapDebugLogger)
+        const secondFlags = buildEntitlementFlags(secondInfo)
+        appendIapDebug(`[IAP] step-10 purchase success second fetch flags=${JSON.stringify(secondFlags)}`)
+        latestStateAppliedAtRef.current = Date.now()
+        setCustomerInfo(secondInfo)
+        injectEntitlementsToCurrentPage(secondFlags)
+
+        const finalInfo = secondInfo ?? nextInfo
+        const unlocked = isIndexUnlocked(data.indexType, finalInfo)
         webRef.current?.injectJavaScript(`
           window.dispatchEvent(
             new CustomEvent(${JSON.stringify(PURCHASE_EVENT_NAME)}, {
