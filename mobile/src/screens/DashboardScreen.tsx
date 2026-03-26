@@ -97,6 +97,7 @@ function isAllowedInWebView(url: string): boolean {
 
 export function DashboardScreen() {
   const webRef = useRef<WebView>(null)
+  const revenueCatReadyRef = useRef<boolean>(false)
   const latestStateAppliedAtRef = useRef<number>(0)
   const syncRequestIdRef = useRef<number>(0)
   const [webViewKey, setWebViewKey] = useState(0)
@@ -202,6 +203,10 @@ export function DashboardScreen() {
   }, [])
 
   const syncRevenueCatState = useCallback(async () => {
+    if (!revenueCatReadyRef.current) {
+      appendIapDebug('[IAP] step-5 syncRevenueCatState skipped because RevenueCat is not ready')
+      return
+    }
     const syncRequestId = ++syncRequestIdRef.current
     const syncStartedAt = Date.now()
     try {
@@ -236,16 +241,31 @@ export function DashboardScreen() {
   }, [appendIapDebug, iapDebugLogger, injectEntitlementsToCurrentPage, logIapError])
 
   useEffect(() => {
-    void configureRevenueCat(iapDebugLogger)
-  }, [])
-
-  useEffect(() => {
-    void syncRevenueCatState()
-  }, [syncRevenueCatState])
+    let cancelled = false
+    void (async () => {
+      try {
+        appendIapDebug('[IAP] step-5 app init configureRevenueCat start')
+        await configureRevenueCat(iapDebugLogger)
+        await new Promise((resolve) => setTimeout(resolve, 500))
+        if (cancelled) return
+        revenueCatReadyRef.current = true
+        appendIapDebug('[IAP] step-5 app init RevenueCat ready')
+        await syncRevenueCatState()
+      } catch (error) {
+        logIapError('step-5', 'app init flow failed', error)
+      } finally {
+        if (!cancelled) setPurchaseChecked(true)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [appendIapDebug, iapDebugLogger, logIapError, syncRevenueCatState])
 
   useEffect(() => {
     const sub = AppState.addEventListener('change', (state) => {
       if (state === 'active') {
+        if (!revenueCatReadyRef.current) return
         void syncRevenueCatState()
       }
     })
