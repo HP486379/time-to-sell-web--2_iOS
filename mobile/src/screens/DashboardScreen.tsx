@@ -539,6 +539,45 @@ export function DashboardScreen() {
           )}
         </View>
       )}
+            <Pressable
+        style={{
+          position: 'absolute',
+          right: 12,
+          bottom: 12,
+          backgroundColor: '#111827',
+          paddingVertical: 10,
+          paddingHorizontal: 14,
+          borderRadius: 8,
+          zIndex: 9999,
+        }}
+        onPress={async () => {
+          try {
+            console.log('[IAP] restore start')
+
+            const info = await restorePurchasesSafe(iapDebugLogger)
+
+            console.log(
+              '[IAP] restore result entitlements=',
+              Object.keys(info?.entitlements.active ?? {})
+            )
+
+            setCustomerInfo(info)
+
+            const flags = buildEntitlementFlags(info)
+            injectEntitlementsToCurrentPage(flags)
+
+            Alert.alert(
+              '復元完了',
+              Object.keys(info?.entitlements.active ?? {}).join(',') || '(空)'
+            )
+          } catch (e) {
+            console.error('[IAP] restore error', e)
+            Alert.alert('復元失敗')
+          }
+        }}
+      >
+        <Text style={{ color: 'white', fontWeight: 'bold' }}>復元</Text>
+      </Pressable>
     </SafeAreaView>
   )
 }
