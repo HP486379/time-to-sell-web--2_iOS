@@ -1,3 +1,4 @@
+import { Alert } from 'react-native'
 import Constants from 'expo-constants'
 import { Alert } from 'react-native'
 import Purchases, {
