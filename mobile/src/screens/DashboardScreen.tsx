@@ -375,13 +375,16 @@ export function DashboardScreen() {
           Alert.alert('[WebView restore] 開始', 'RESTORE_PURCHASES メッセージを受信')
           appendIapDebug('[IAP] step-6b RESTORE_PURCHASES received')
 
-          Alert.alert('[WebView restore] restorePurchasesSafe 呼び出し', '実行中...')
+          Alert.alert('[WebView restore] restorePurchasesSafe 呼び出し中', '実行中...')
           const nextInfo = await restorePurchasesSafe(
             SHOW_IAP_DEBUG ? iapDebugLogger : undefined,
           )
 
           const activeKeys = Object.keys(nextInfo?.entitlements.active ?? {})
-          Alert.alert('[WebView restore] restore完了', `active: ${activeKeys.join(', ') || '(空)'}`)
+          Alert.alert(
+            '[WebView restore] restore完了',
+            `active entitlements: ${activeKeys.join(', ') || '(空)'}`,
+          )
 
           setCustomerInfo(nextInfo)
           const flags = buildEntitlementFlags(nextInfo)
@@ -389,10 +392,14 @@ export function DashboardScreen() {
 
           if (nextInfo) {
             try {
-              Alert.alert('[WebView restore] userId取得中', '...')
+              Alert.alert('[WebView restore] sync 開始', 'userId取得中...')
               const userId = await getOrCreateUserId()
               Alert.alert('[WebView restore] userId取得完了', `userId=${userId}`)
-              await syncPurchasesToBackend(nextInfo, userId, SHOW_IAP_DEBUG ? iapDebugLogger : undefined)
+              await syncPurchasesToBackend(
+                nextInfo,
+                userId,
+                SHOW_IAP_DEBUG ? iapDebugLogger : undefined,
+              )
             } catch (syncErr) {
               const msg = syncErr instanceof Error ? syncErr.message : String(syncErr)
               Alert.alert('[WebView restore] sync 例外', msg)
@@ -579,14 +586,18 @@ export function DashboardScreen() {
           try {
             Alert.alert('[ボタン restore] 開始', '復元ボタンが押されました')
 
+            Alert.alert('[ボタン restore] userId取得中', '...')
             const userId = await getOrCreateUserId()
             Alert.alert('[ボタン restore] userId取得完了', `userId=${userId}`)
 
-            Alert.alert('[ボタン restore] restorePurchasesSafe 呼び出し', '実行中...')
+            Alert.alert('[ボタン restore] restorePurchasesSafe 呼び出し中', '実行中...')
             const info = await restorePurchasesSafe(iapDebugLogger)
 
             const activeKeys = Object.keys(info?.entitlements.active ?? {})
-            Alert.alert('[ボタン restore] restore完了', `active: ${activeKeys.join(', ') || '(空)'}`)
+            Alert.alert(
+              '[ボタン restore] restore完了',
+              `active entitlements: ${activeKeys.join(', ') || '(空)'}`,
+            )
 
             setCustomerInfo(info)
             const flags = buildEntitlementFlags(info)

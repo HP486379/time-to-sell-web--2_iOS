@@ -1,5 +1,6 @@
 import { Alert } from 'react-native'
 import Constants from 'expo-constants'
+import { Alert } from 'react-native'
 import Purchases, {
   LOG_LEVEL,
   type CustomerInfo,
@@ -219,6 +220,23 @@ function rcDebugLog(debugLogger: IapDebugLogger | undefined, message: string, va
   if (!IAP_DEBUG_ENABLED) return
   debugLogger?.(`RC DEBUG ${safeMessage}=${safeValue}`)
 }
+
+// ---------- backend sync config ----------
+const RAW_BACKEND_URL_FOR_SYNC =
+  (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env
+    ?.EXPO_PUBLIC_BACKEND_URL
+
+const BACKEND_URL_FOR_SYNC =
+  RAW_BACKEND_URL_FOR_SYNC && RAW_BACKEND_URL_FOR_SYNC.trim().length > 0
+    ? RAW_BACKEND_URL_FOR_SYNC.trim()
+    : 'https://time-to-sell-web-2-ios-api.vercel.app'
+
+function buildPurchaseSyncUrl(path: string): string {
+  const base = BACKEND_URL_FOR_SYNC.replace(/\/$/, '')
+  const p = path.startsWith('/') ? path : `/${path}`
+  return `${base}${p}`
+}
+// ---------- end backend sync config ----------
 
 let configured = false
 let firstConfigureCallsite: string | null = null
@@ -726,35 +744,21 @@ export async function restorePurchasesSafe(
   return await getCustomerInfoSafe(debugLogger)
 }
 
-// ---- backend URL for purchase sync ----
-const RAW_BACKEND_URL_FOR_SYNC =
-  (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env
-    ?.EXPO_PUBLIC_BACKEND_URL
-
-const BACKEND_URL_FOR_SYNC =
-  RAW_BACKEND_URL_FOR_SYNC && RAW_BACKEND_URL_FOR_SYNC.trim().length > 0
-    ? RAW_BACKEND_URL_FOR_SYNC.trim()
-    : 'https://time-to-sell-web-2-ios-api.vercel.app'
-
-function buildPurchaseSyncUrl(path: string): string {
-  const base = BACKEND_URL_FOR_SYNC.replace(/\/$/, '')
-  const p = path.startsWith('/') ? path : `/${path}`
-  return `${base}${p}`
-}
-
 export async function syncPurchasesToBackend(
   customerInfo: CustomerInfo,
   userId: string,
   debugLogger?: IapDebugLogger,
 ): Promise<void> {
   Alert.alert('[sync] 開始', `userId=${userId}\nBACKEND=${BACKEND_URL_FOR_SYNC}`)
+  debugLogger?.(`[sync] start userId=${userId} backend=${BACKEND_URL_FOR_SYNC}`)
 
   const activeEntitlements = customerInfo.entitlements.active
   const activeKeys = Object.keys(activeEntitlements)
   Alert.alert('[sync] active entitlements', `件数=${activeKeys.length}\nkeys=${activeKeys.join(', ')}`)
+  debugLogger?.(`[sync] active entitlement keys=${activeKeys.join(',')}`)
 
   if (activeKeys.length === 0) {
-    Alert.alert('[sync] スキップ', 'active entitlements が0件のためPOSTをスキップします')
+    Alert.alert('[sync] スキップ', 'active entitlementsが0件のためPOSTをスキップします')
     debugLogger?.('[sync] skipped: no active entitlements')
     return
   }
@@ -765,7 +769,7 @@ export async function syncPurchasesToBackend(
     if (!rawProductIdentifier) {
       Alert.alert(
         '[sync] productIdentifier 取得失敗',
-        `entitlementKey=${key}\nproductIdentifier=${String(rawProductIdentifier)}\nentitlement=${JSON.stringify(entitlement).slice(0, 300)}`,
+        `entitlementKey=${key}\nproductIdentifier=${String(rawProductIdentifier)}`,
       )
       debugLogger?.(`[sync] productIdentifier missing for key=${key}`)
     }
@@ -799,6 +803,7 @@ export async function syncPurchasesToBackend(
   }
 
   Alert.alert('[sync] 完了', `${activeKeys.length}件のentitlementを処理しました`)
+  debugLogger?.(`[sync] done processed=${activeKeys.length}`)
 }
 
 export function buildEntitlementFlags(customerInfo: CustomerInfo | null): Record<string, boolean> {
