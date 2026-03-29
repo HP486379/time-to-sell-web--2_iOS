@@ -27,9 +27,11 @@ import {
   isIndexUnlocked,
   purchaseIndex,
   restorePurchasesSafe,
+  syncPurchasesToBackend,
   type AppIndexType,
   type IapDebugLogger,
 } from '../revenuecat'
+import { getOrCreateUserId } from '../push/registerPush'
 
 const WEB_DASHBOARD_URL =
   (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env
@@ -370,13 +372,36 @@ export function DashboardScreen() {
           true;
         `)
         } else if (data.type === 'RESTORE_PURCHASES') {
+          Alert.alert('[WebView restore] 開始', 'RESTORE_PURCHASES メッセージを受信')
           appendIapDebug('[IAP] step-6b RESTORE_PURCHASES received')
+
+          Alert.alert('[WebView restore] restorePurchasesSafe 呼び出し', '実行中...')
           const nextInfo = await restorePurchasesSafe(
             SHOW_IAP_DEBUG ? iapDebugLogger : undefined,
           )
+
+          const activeKeys = Object.keys(nextInfo?.entitlements.active ?? {})
+          Alert.alert('[WebView restore] restore完了', `active: ${activeKeys.join(', ') || '(空)'}`)
+
           setCustomerInfo(nextInfo)
           const flags = buildEntitlementFlags(nextInfo)
           injectEntitlementsToCurrentPage(flags)
+
+          if (nextInfo) {
+            try {
+              Alert.alert('[WebView restore] userId取得中', '...')
+              const userId = await getOrCreateUserId()
+              Alert.alert('[WebView restore] userId取得完了', `userId=${userId}`)
+              await syncPurchasesToBackend(nextInfo, userId, SHOW_IAP_DEBUG ? iapDebugLogger : undefined)
+            } catch (syncErr) {
+              const msg = syncErr instanceof Error ? syncErr.message : String(syncErr)
+              Alert.alert('[WebView restore] sync 例外', msg)
+              appendIapDebug(`[IAP] step-6b syncPurchasesToBackend error=${msg}`)
+            }
+          } else {
+            Alert.alert('[WebView restore] sync スキップ', 'customerInfoがnullのためスキップ')
+          }
+
           webRef.current?.injectJavaScript(`
           window.dispatchEvent(
             new CustomEvent(${JSON.stringify(RESTORE_EVENT_NAME)}, {
@@ -552,27 +577,32 @@ export function DashboardScreen() {
         }}
         onPress={async () => {
           try {
-            console.log('[IAP] restore start')
+            Alert.alert('[ボタン restore] 開始', '復元ボタンが押されました')
 
+            const userId = await getOrCreateUserId()
+            Alert.alert('[ボタン restore] userId取得完了', `userId=${userId}`)
+
+            Alert.alert('[ボタン restore] restorePurchasesSafe 呼び出し', '実行中...')
             const info = await restorePurchasesSafe(iapDebugLogger)
 
-            console.log(
-              '[IAP] restore result entitlements=',
-              Object.keys(info?.entitlements.active ?? {})
-            )
+            const activeKeys = Object.keys(info?.entitlements.active ?? {})
+            Alert.alert('[ボタン restore] restore完了', `active: ${activeKeys.join(', ') || '(空)'}`)
 
             setCustomerInfo(info)
-
             const flags = buildEntitlementFlags(info)
             injectEntitlementsToCurrentPage(flags)
 
-            Alert.alert(
-              '復元完了',
-              Object.keys(info?.entitlements.active ?? {}).join(',') || '(空)'
-            )
+            if (info) {
+              await syncPurchasesToBackend(info, userId, iapDebugLogger)
+            } else {
+              Alert.alert('[ボタン restore] sync スキップ', 'customerInfoがnullのためスキップ')
+            }
+
+            Alert.alert('復元完了', activeKeys.join(', ') || '(購入履歴なし)')
           } catch (e) {
+            const msg = e instanceof Error ? e.message : String(e)
+            Alert.alert('[ボタン restore] 例外発生', msg)
             console.error('[IAP] restore error', e)
-            Alert.alert('復元失敗')
           }
         }}
       >
