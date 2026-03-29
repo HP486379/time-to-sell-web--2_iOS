@@ -1,3 +1,4 @@
+import { Alert } from 'react-native'
 import Constants from 'expo-constants'
 import Purchases, {
   LOG_LEVEL,
@@ -723,6 +724,81 @@ export async function restorePurchasesSafe(
   }
 
   return await getCustomerInfoSafe(debugLogger)
+}
+
+// ---- backend URL for purchase sync ----
+const RAW_BACKEND_URL_FOR_SYNC =
+  (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env
+    ?.EXPO_PUBLIC_BACKEND_URL
+
+const BACKEND_URL_FOR_SYNC =
+  RAW_BACKEND_URL_FOR_SYNC && RAW_BACKEND_URL_FOR_SYNC.trim().length > 0
+    ? RAW_BACKEND_URL_FOR_SYNC.trim()
+    : 'https://time-to-sell-web-2-ios-api.vercel.app'
+
+function buildPurchaseSyncUrl(path: string): string {
+  const base = BACKEND_URL_FOR_SYNC.replace(/\/$/, '')
+  const p = path.startsWith('/') ? path : `/${path}`
+  return `${base}${p}`
+}
+
+export async function syncPurchasesToBackend(
+  customerInfo: CustomerInfo,
+  userId: string,
+  debugLogger?: IapDebugLogger,
+): Promise<void> {
+  Alert.alert('[sync] 開始', `userId=${userId}\nBACKEND=${BACKEND_URL_FOR_SYNC}`)
+
+  const activeEntitlements = customerInfo.entitlements.active
+  const activeKeys = Object.keys(activeEntitlements)
+  Alert.alert('[sync] active entitlements', `件数=${activeKeys.length}\nkeys=${activeKeys.join(', ')}`)
+
+  if (activeKeys.length === 0) {
+    Alert.alert('[sync] スキップ', 'active entitlements が0件のためPOSTをスキップします')
+    debugLogger?.('[sync] skipped: no active entitlements')
+    return
+  }
+
+  for (const key of activeKeys) {
+    const entitlement = activeEntitlements[key]
+    const rawProductIdentifier = entitlement?.productIdentifier
+    if (!rawProductIdentifier) {
+      Alert.alert(
+        '[sync] productIdentifier 取得失敗',
+        `entitlementKey=${key}\nproductIdentifier=${String(rawProductIdentifier)}\nentitlement=${JSON.stringify(entitlement).slice(0, 300)}`,
+      )
+      debugLogger?.(`[sync] productIdentifier missing for key=${key}`)
+    }
+    const productIdentifier: string = rawProductIdentifier ?? key
+
+    const url = buildPurchaseSyncUrl('/purchase')
+    const body = JSON.stringify({ user_id: userId, product_id: productIdentifier })
+    Alert.alert('[sync] POST /purchase 実行直前', `url=${url}\nbody=${body}`)
+    debugLogger?.(`[sync] POST ${url} body=${body}`)
+
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body,
+      })
+      const responseText = await res.text().catch(() => '(body読み取り失敗)')
+      Alert.alert(
+        `[sync] POST /purchase 応答`,
+        `status=${res.status}\nbody=${responseText.slice(0, 300)}`,
+      )
+      debugLogger?.(`[sync] POST /purchase status=${res.status} body=${responseText.slice(0, 200)}`)
+    } catch (fetchError) {
+      const msg = formatErrorMessage(fetchError)
+      Alert.alert(
+        '[sync] POST /purchase 例外',
+        `entitlementKey=${key}\nproductId=${productIdentifier}\nerror=${msg}`,
+      )
+      debugLogger?.(`[sync] POST /purchase exception key=${key} error=${msg}`)
+    }
+  }
+
+  Alert.alert('[sync] 完了', `${activeKeys.length}件のentitlementを処理しました`)
 }
 
 export function buildEntitlementFlags(customerInfo: CustomerInfo | null): Record<string, boolean> {
