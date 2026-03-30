@@ -228,7 +228,7 @@ const RAW_BACKEND_URL_FOR_SYNC =
 const BACKEND_URL_FOR_SYNC =
   RAW_BACKEND_URL_FOR_SYNC && RAW_BACKEND_URL_FOR_SYNC.trim().length > 0
     ? RAW_BACKEND_URL_FOR_SYNC.trim()
-    : 'https://time-to-sell-web-2-ios-api.vercel.app'
+    : 'https://mai-rishi-kun.onrender.com'
 
 function buildPurchaseSyncUrl(path: string): string {
   const base = BACKEND_URL_FOR_SYNC.replace(/\/$/, '')
