@@ -774,7 +774,7 @@ export async function syncPurchasesToBackend(
     }
     const productIdentifier: string = rawProductIdentifier ?? key
 
-    const url = buildPurchaseSyncUrl('/purchase')
+    const url = buildPurchaseSyncUrl('/api/purchase')
     const body = JSON.stringify({ user_id: userId, product_id: productIdentifier })
     Alert.alert('[sync] POST /purchase 実行直前', `url=${url}\nbody=${body}`)
     debugLogger?.(`[sync] POST ${url} body=${body}`)
