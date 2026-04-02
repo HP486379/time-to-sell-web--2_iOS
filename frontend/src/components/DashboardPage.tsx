@@ -308,6 +308,24 @@ type PurchaseResultDetail = {
 }
 
 const PURCHASE_EVENT_NAME = 'timetosell:purchase-result'
+const EVAL_DEBUG_ALERT_ENABLED = true
+
+const postNativeEvalDebug = (payload: Record<string, unknown>) => {
+  if (!EVAL_DEBUG_ALERT_ENABLED || typeof window === 'undefined') return
+  try {
+    const bridgeWindow = window as Window & {
+      ReactNativeWebView?: { postMessage?: (message: string) => void }
+    }
+    bridgeWindow.ReactNativeWebView?.postMessage?.(
+      JSON.stringify({
+        type: 'EVAL_DEBUG_ALERT',
+        ...payload,
+      }),
+    )
+  } catch (error) {
+    console.warn('[EVAL DEBUG] failed to post debug payload', error)
+  }
+}
 
 function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
   const [responses, setResponses] = useState<Partial<Record<IndexType, EvaluateResponse>>>({})
@@ -520,8 +538,26 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
         }
       }
       const res = await apiClient.post<EvaluateResponse>(buildUrl('/api/evaluate'), body)
-      if (reqSeq !== evalReqSeqRef.current) return
-      if (res.data.request_id !== latestEvalRequestIdRef.current[targetIndex]) return
+      const responseRequestId = res.data.request_id
+      const latestRequestId = latestEvalRequestIdRef.current[targetIndex]
+      const isStaleByReqSeq = reqSeq !== evalReqSeqRef.current
+      const hasComparableRequestId =
+        typeof responseRequestId === 'string' && typeof latestRequestId === 'string'
+      const isStaleByRequestId = hasComparableRequestId && responseRequestId !== latestRequestId
+      postNativeEvalDebug({
+        step: 'after-evaluate-response',
+        indexType: targetIndex,
+        reqSeq,
+        evalReqSeqCurrent: evalReqSeqRef.current,
+        request_id: responseRequestId ?? null,
+        latest_request_id: latestRequestId ?? null,
+        stale_by_req_seq: isStaleByReqSeq,
+        stale_by_request_id: isStaleByRequestId,
+        scores_total: res.data.scores?.total ?? null,
+        response: res.data,
+      })
+      if (isStaleByReqSeq) return
+      if (isStaleByRequestId) return
       const latestSeries = priceSeriesMap[targetIndex] ?? []
       const normalized = normalizeEvaluateResponse(res.data, latestSeries)
       const status = resolveUiStatus(normalized)
@@ -571,6 +607,12 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
       }
 
       setResponses((prev) => ({ ...prev, [targetIndex]: normalized }))
+      postNativeEvalDebug({
+        step: 'state-updated',
+        indexType: targetIndex,
+        status,
+        scores_total: normalized.scores?.total ?? null,
+      })
       if (targetIndex === indexType && payload)
         setLastRequest((prev) => ({ ...prev, ...payload, index_type: targetIndex }))
       if (markPrimary) {

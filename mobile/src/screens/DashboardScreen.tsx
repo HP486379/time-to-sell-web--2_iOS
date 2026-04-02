@@ -319,6 +319,12 @@ export function DashboardScreen() {
           step?: string
           message?: string
           payload?: unknown
+          request_id?: string | null
+          latest_request_id?: string | null
+          stale_by_req_seq?: boolean
+          stale_by_request_id?: boolean
+          scores_total?: number | null
+          response?: unknown
         }
 
         if (data.type === 'IAP_TRACE') {
@@ -332,6 +338,21 @@ export function DashboardScreen() {
               ? ''
               : ` ${JSON.stringify(data.payload)}`
           appendIapDebug(`[IAP] ${data.step ?? 'step-w'} ${data.message ?? 'web debug'}${suffix}`)
+          return
+        }
+
+        if (data.type === 'EVAL_DEBUG_ALERT') {
+          const title = `[EVAL DEBUG] ${data.step ?? 'unknown'}`
+          const message = [
+            `index=${String(data.indexType ?? '-')}`,
+            `scores.total=${String(data.scores_total ?? 'null')}`,
+            `request_id=${String(data.request_id ?? 'null')}`,
+            `latest_request_id=${String(data.latest_request_id ?? 'null')}`,
+            `stale_by_req_seq=${String(Boolean(data.stale_by_req_seq))}`,
+            `stale_by_request_id=${String(Boolean(data.stale_by_request_id))}`,
+            `response=${JSON.stringify(data.response ?? {})}`,
+          ].join('\n')
+          Alert.alert(title, message)
           return
         }
 
