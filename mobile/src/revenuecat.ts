@@ -1,5 +1,4 @@
 import Constants from 'expo-constants'
-import { Alert } from 'react-native'
 import Purchases, {
   LOG_LEVEL,
   type CustomerInfo,
@@ -48,6 +47,11 @@ const INDEX_TO_PRODUCT_ID = (runtimeExtra.revenuecatProductIds ?? {}) as Partial
 >
 
 export type IapDebugLogger = (line: string) => void
+export type PurchaseIndexResult = {
+  customerInfo: CustomerInfo | null
+  productId: string | null
+  transactionId: string | null
+}
 
 export type PurchaseFailureReason =
   | 'none'
@@ -130,7 +134,7 @@ export function getLastPurchaseFailure(): {
 }
 
 function debugLog(...args: unknown[]) {
-  if (!IAP_DEBUG_ENABLED) return
+  if (!__DEV__ || !IAP_DEBUG_ENABLED) return
   console.log(...args)
 }
 
@@ -374,7 +378,13 @@ export async function getCustomerInfoSafe(
 ): Promise<CustomerInfo | null> {
   if (!configured) {
     const ok = await configureRevenueCat(debugLogger)
-    if (!ok) return null
+    if (!ok) {
+      return {
+        customerInfo: null,
+        productId: null,
+        transactionId: null,
+      }
+    }
   }
 
   try {
@@ -399,7 +409,13 @@ export async function getDefaultOfferingSafe(
 ): Promise<PurchasesOffering | null> {
   if (!configured) {
     const ok = await configureRevenueCat(debugLogger)
-    if (!ok) return null
+    if (!ok) {
+      return {
+        customerInfo: null,
+        productId: null,
+        transactionId: null,
+      }
+    }
   }
 
   try {
@@ -535,7 +551,7 @@ function findPackageForIndex(
 export async function purchaseIndex(
   indexType: AppIndexType,
   debugLogger?: IapDebugLogger,
-): Promise<CustomerInfo | null> {
+): Promise<PurchaseIndexResult> {
   iapLog('step-7', 'purchaseIndex called', { indexType }, debugLogger)
   iapLog('step-7', 'indexType to entitlement mapping snapshot', INDEX_TO_ENTITLEMENT, debugLogger)
   iapLog('step-7', 'indexType to productId mapping snapshot', INDEX_TO_PRODUCT_ID, debugLogger)
@@ -575,15 +591,27 @@ export async function purchaseIndex(
   if (!entitlementId) {
     iapLog('step-7', 'purchase skipped because selected index is free', { indexType }, debugLogger)
     debugLog('[revenuecat] free index selected, purchase not required', { indexType })
-    return getCustomerInfoSafe(debugLogger)
+    return {
+      customerInfo: await getCustomerInfoSafe(debugLogger),
+      productId: null,
+      transactionId: null,
+    }
   }
 
   if (!configured) {
     const ok = await configureRevenueCat(debugLogger)
-    if (!ok) return null
+    if (!ok) {
+      return {
+        customerInfo: null,
+        productId: null,
+        transactionId: null,
+      }
+    }
   }
 
   let latestCustomerInfo: CustomerInfo | null = null
+  let purchasedProductId: string | null = null
+  let purchasedTransactionId: string | null = null
 
   try {
     const offering = await getDefaultOfferingSafe(debugLogger)
@@ -626,7 +654,11 @@ export async function purchaseIndex(
         indexType,
         entitlementId,
       })
-      return await getCustomerInfoSafe(debugLogger)
+      return {
+        customerInfo: await getCustomerInfoSafe(debugLogger),
+        productId: null,
+        transactionId: null,
+      }
     }
 
     const canMakePaymentsResult = await Purchases.canMakePayments()
@@ -644,10 +676,24 @@ export async function purchaseIndex(
         new Error('StoreKit payments are disabled on this device/account'),
         debugLogger,
       )
-      return await getCustomerInfoSafe(debugLogger)
+      return {
+        customerInfo: await getCustomerInfoSafe(debugLogger),
+        productId: null,
+        transactionId: null,
+      }
     }
 
-    await Purchases.purchasePackage(targetPackage)
+    const purchaseResult = await Purchases.purchasePackage(targetPackage)
+    const rawTransactionIdentifier =
+      (purchaseResult as { transaction?: { transactionIdentifier?: unknown; identifier?: unknown } })
+        ?.transaction?.transactionIdentifier ??
+      (purchaseResult as { transaction?: { transactionIdentifier?: unknown; identifier?: unknown } })
+        ?.transaction?.identifier
+    purchasedTransactionId =
+      typeof rawTransactionIdentifier === 'string' && rawTransactionIdentifier.trim().length > 0
+        ? rawTransactionIdentifier
+        : null
+    purchasedProductId = targetPackage.product.identifier
     iapLog('step-10', 'purchasePackage resolved successfully', { indexType, entitlementId }, debugLogger)
     debugLog('[revenuecat] purchase success', { indexType, entitlementId })
 
@@ -719,8 +765,41 @@ export async function purchaseIndex(
     }
   }
 
-  if (latestCustomerInfo) return latestCustomerInfo
-  return await getCustomerInfoSafe(debugLogger)
+  if (latestCustomerInfo) {
+    return {
+      customerInfo: latestCustomerInfo,
+      productId: purchasedProductId,
+      transactionId: purchasedTransactionId,
+    }
+  }
+  return {
+    customerInfo: await getCustomerInfoSafe(debugLogger),
+    productId: purchasedProductId,
+    transactionId: purchasedTransactionId,
+  }
+}
+
+export async function syncSinglePurchaseToBackend(
+  userId: string,
+  productId: string,
+  transactionId: string,
+  debugLogger?: IapDebugLogger,
+): Promise<boolean> {
+  if (!transactionId || !transactionId.trim()) return false
+  const url = buildPurchaseSyncUrl('/api/purchase')
+  const body = JSON.stringify({
+    user_id: userId,
+    product_id: productId,
+    transaction_id: transactionId,
+  })
+  debugLogger?.(`[sync] POST ${url} body=${body}`)
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body,
+  })
+  debugLogger?.(`[sync] POST /purchase status=${res.status}`)
+  return res.ok
 }
 
 export async function restorePurchasesSafe(
@@ -735,12 +814,12 @@ export async function restorePurchasesSafe(
     await Purchases.restorePurchases()
     iapLog('step-r1', 'restore purchases success', undefined, debugLogger)
     debugLog('[revenuecat] restore purchases success')
+    return await getCustomerInfoSafe(debugLogger)
   } catch (error) {
     iapError('step-r1', 'restore purchases failed', error, debugLogger)
     debugError('[revenuecat] restore purchases failed', error)
+    return null
   }
-
-  return await getCustomerInfoSafe(debugLogger)
 }
 
 export async function syncPurchasesToBackend(
@@ -748,16 +827,13 @@ export async function syncPurchasesToBackend(
   userId: string,
   debugLogger?: IapDebugLogger,
 ): Promise<void> {
-  Alert.alert('[sync] 開始', `userId=${userId}\nBACKEND=${BACKEND_URL_FOR_SYNC}`)
   debugLogger?.(`[sync] start userId=${userId} backend=${BACKEND_URL_FOR_SYNC}`)
 
   const activeEntitlements = customerInfo.entitlements.active
   const activeKeys = Object.keys(activeEntitlements)
-  Alert.alert('[sync] active entitlements', `件数=${activeKeys.length}\nkeys=${activeKeys.join(', ')}`)
   debugLogger?.(`[sync] active entitlement keys=${activeKeys.join(',')}`)
 
   if (activeKeys.length === 0) {
-    Alert.alert('[sync] スキップ', 'active entitlementsが0件のためPOSTをスキップします')
     debugLogger?.('[sync] skipped: no active entitlements')
     return
   }
@@ -766,17 +842,12 @@ export async function syncPurchasesToBackend(
     const entitlement = activeEntitlements[key]
     const rawProductIdentifier = entitlement?.productIdentifier
     if (!rawProductIdentifier) {
-      Alert.alert(
-        '[sync] productIdentifier 取得失敗',
-        `entitlementKey=${key}\nproductIdentifier=${String(rawProductIdentifier)}`,
-      )
       debugLogger?.(`[sync] productIdentifier missing for key=${key}`)
     }
     const productIdentifier: string = rawProductIdentifier ?? key
 
     const url = buildPurchaseSyncUrl('/api/purchase')
     const body = JSON.stringify({ user_id: userId, product_id: productIdentifier })
-    Alert.alert('[sync] POST /purchase 実行直前', `url=${url}\nbody=${body}`)
     debugLogger?.(`[sync] POST ${url} body=${body}`)
 
     try {
@@ -786,22 +857,13 @@ export async function syncPurchasesToBackend(
         body,
       })
       const responseText = await res.text().catch(() => '(body読み取り失敗)')
-      Alert.alert(
-        `[sync] POST /purchase 応答`,
-        `status=${res.status}\nbody=${responseText.slice(0, 300)}`,
-      )
       debugLogger?.(`[sync] POST /purchase status=${res.status} body=${responseText.slice(0, 200)}`)
     } catch (fetchError) {
       const msg = formatErrorMessage(fetchError)
-      Alert.alert(
-        '[sync] POST /purchase 例外',
-        `entitlementKey=${key}\nproductId=${productIdentifier}\nerror=${msg}`,
-      )
       debugLogger?.(`[sync] POST /purchase exception key=${key} error=${msg}`)
     }
   }
 
-  Alert.alert('[sync] 完了', `${activeKeys.length}件のentitlementを処理しました`)
   debugLogger?.(`[sync] done processed=${activeKeys.length}`)
 }
 

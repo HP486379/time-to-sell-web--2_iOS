@@ -36,11 +36,15 @@ export default function App() {
         try {
           const token = await getExpoPushToken()
           if (!token) {
-            console.log('[push] token 取得できず（権限拒否または実機以外）')
+            if (__DEV__) {
+              console.log('[push] token 取得できず（権限拒否または実機以外）')
+            }
             return
           }
           const registerResult = await registerPushToken(token)
-          console.log('[push] register result', { token, registerResult })
+          if (__DEV__) {
+            console.log('[push] register result', { token, registerResult })
+          }
         } catch (err) {
           console.error('[push] 初期化エラー', err)
         }

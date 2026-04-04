@@ -68,7 +68,9 @@ export async function getExpoPushTokenDetailed(): Promise<PushTokenResult> {
 export async function getExpoPushToken(): Promise<string | null> {
   const { token, reason } = await getExpoPushTokenDetailed()
   if (!token && reason) {
-    console.log(`[push] token 取得不可: ${reason}`)
+    if (__DEV__) {
+      console.log(`[push] token 取得不可: ${reason}`)
+    }
   }
   return token
 }
