@@ -132,6 +132,14 @@ export function DashboardScreen() {
     `)
   }, [])
 
+  const applyCustomerInfoToState = useCallback(
+    (info: CustomerInfo | null) => {
+      setCustomerInfo(info)
+      injectEntitlementsToCurrentPage(buildEntitlementFlags(info))
+    },
+    [injectEntitlementsToCurrentPage],
+  )
+
   const syncRevenueCatState = useCallback(async () => {
     if (!revenueCatReadyRef.current) {
       return
@@ -152,19 +160,16 @@ export function DashboardScreen() {
         return
       }
 
-      setCustomerInfo(info)
-      const flags = buildEntitlementFlags(info)
-      injectEntitlementsToCurrentPage(flags)
+      applyCustomerInfoToState(info)
       latestStateAppliedAtRef.current = Date.now()
     } catch (error) {
       logIapError('step-5', 'syncRevenueCatState failed', error)
       if (WEBVIEW_DEBUG) console.error('[dashboard-webview] syncRevenueCatState failed', error)
-      setCustomerInfo(null)
-      injectEntitlementsToCurrentPage(buildEntitlementFlags(null))
+      applyCustomerInfoToState(null)
     } finally {
       setPurchaseChecked(true)
     }
-  }, [injectEntitlementsToCurrentPage, logIapError])
+  }, [applyCustomerInfoToState, logIapError])
 
   useEffect(() => {
     let isMounted = true
@@ -220,16 +225,12 @@ export function DashboardScreen() {
             const purchaseResult = await purchaseIndex(data.indexType)
             const nextInfo = purchaseResult.customerInfo
             latestStateAppliedAtRef.current = Date.now()
-            setCustomerInfo(nextInfo)
-            const latestFlags = buildEntitlementFlags(nextInfo)
-            injectEntitlementsToCurrentPage(latestFlags)
+            applyCustomerInfoToState(nextInfo)
 
             await new Promise((resolve) => setTimeout(resolve, 400))
             const secondInfo = await getCustomerInfoSafe()
-            const secondFlags = buildEntitlementFlags(secondInfo)
             latestStateAppliedAtRef.current = Date.now()
-            setCustomerInfo(secondInfo)
-            injectEntitlementsToCurrentPage(secondFlags)
+            applyCustomerInfoToState(secondInfo)
 
             const finalInfo = secondInfo ?? nextInfo
             unlocked = isIndexUnlocked(data.indexType, finalInfo)
@@ -274,9 +275,7 @@ export function DashboardScreen() {
               restoreOk = false
               Alert.alert('復元失敗', '復元に失敗しました。')
             } else {
-              setCustomerInfo(nextInfo)
-              const flags = buildEntitlementFlags(nextInfo)
-              injectEntitlementsToCurrentPage(flags)
+              applyCustomerInfoToState(nextInfo)
               const userId = await getOrCreateUserId()
               await syncPurchasesToBackend(nextInfo, userId)
               Alert.alert('復元完了')
@@ -301,7 +300,7 @@ export function DashboardScreen() {
         if (WEBVIEW_DEBUG) console.error('[dashboard-webview] message handling failed', error)
       }
     },
-    [injectEntitlementsToCurrentPage, logIapError],
+    [applyCustomerInfoToState, logIapError],
   )
 
   const onWebViewMessage = useCallback(
@@ -320,9 +319,7 @@ export function DashboardScreen() {
         return
       }
 
-      setCustomerInfo(info)
-      const flags = buildEntitlementFlags(info)
-      injectEntitlementsToCurrentPage(flags)
+      applyCustomerInfoToState(info)
       await syncPurchasesToBackend(info, userId)
       Alert.alert('復元完了')
     } catch (e) {
@@ -331,7 +328,7 @@ export function DashboardScreen() {
         console.error('[IAP] restore error', e)
       }
     }
-  }, [injectEntitlementsToCurrentPage])
+  }, [applyCustomerInfoToState])
 
   const retry = useCallback(() => {
     debugLog('retry', { uri })

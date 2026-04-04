@@ -45,6 +45,15 @@ export const INDEX_TO_ENTITLEMENT: Record<AppIndexType, EntitlementId | null> = 
 const INDEX_TO_PRODUCT_ID = (runtimeExtra.revenuecatProductIds ?? {}) as Partial<
   Record<AppIndexType, string>
 >
+const INDEX_TO_FALLBACK_PRODUCT_IDS: Record<AppIndexType, string[]> = {
+  SP500: [],
+  sp500_jpy: ['sp500_jpy_a', 'sp500_jpy'],
+  TOPIX: ['topix_a', 'topix'],
+  NIKKEI: ['nikkei225_a', 'nikkei225'],
+  NIFTY50: ['nifty50_a', 'nifty50'],
+  ORUKAN: ['allcountry_a', 'allcountry', 'orukan_a'],
+  orukan_jpy: ['allcountry_jpy_a', 'allcountry_jpy', 'orukan_jpy_a', 'orukan_jpy'],
+}
 
 export type IapDebugLogger = (line: string) => void
 export type PurchaseIndexResult = {
@@ -495,7 +504,42 @@ export function isIndexUnlocked(indexType: AppIndexType, customerInfo: CustomerI
   const entitlementId = INDEX_TO_ENTITLEMENT[indexType]
   if (!entitlementId) return true
   if (!customerInfo) return false
-  return !!customerInfo.entitlements.active[entitlementId]
+
+  const activeEntitlementKeys = Object.keys(customerInfo.entitlements.active ?? {})
+  const isUnlockedByEntitlement = activeEntitlementKeys.includes(entitlementId)
+
+  const purchasedProductIds = new Set(
+    [
+      ...(((customerInfo as { allPurchasedProductIdentifiers?: unknown }).allPurchasedProductIdentifiers ??
+        []) as unknown[]),
+      ...((customerInfo.activeSubscriptions ?? []) as unknown[]),
+      ...((customerInfo.nonSubscriptionTransactions ?? []).map((tx) => tx.productIdentifier) as unknown[]),
+    ]
+      .filter((v): v is string => typeof v === 'string' && v.length > 0)
+      .map((v) => v.toLowerCase()),
+  )
+
+  const mappedProductId = INDEX_TO_PRODUCT_ID[indexType]
+  const candidateProductIds = [
+    ...(mappedProductId ? [mappedProductId] : []),
+    ...INDEX_TO_FALLBACK_PRODUCT_IDS[indexType],
+  ].map((id) => id.toLowerCase())
+
+  const isUnlockedByProduct = candidateProductIds.some((id) => purchasedProductIds.has(id))
+  const unlocked = isUnlockedByEntitlement || isUnlockedByProduct
+
+  if (__DEV__) {
+    console.log('[IAP] purchased product identifiers', Array.from(purchasedProductIds))
+    console.log('[IAP] mapping keys', {
+      indexType,
+      entitlementId,
+      mappedProductId: mappedProductId ?? null,
+      candidateProductIds,
+    })
+    console.log('[IAP] unlock result', { indexType, unlocked, byEntitlement: isUnlockedByEntitlement, byProduct: isUnlockedByProduct })
+  }
+
+  return unlocked
 }
 
 function findPackageForIndex(
