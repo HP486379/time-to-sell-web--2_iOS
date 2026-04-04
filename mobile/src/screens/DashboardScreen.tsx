@@ -311,6 +311,28 @@ export function DashboardScreen() {
     [handleWebViewMessage],
   )
 
+  const handleRestorePress = useCallback(async () => {
+    try {
+      const userId = await getOrCreateUserId()
+      const info = await restorePurchasesSafe()
+      if (!info) {
+        Alert.alert('復元失敗', '復元に失敗しました。')
+        return
+      }
+
+      setCustomerInfo(info)
+      const flags = buildEntitlementFlags(info)
+      injectEntitlementsToCurrentPage(flags)
+      await syncPurchasesToBackend(info, userId)
+      Alert.alert('復元完了')
+    } catch (e) {
+      Alert.alert('復元失敗', '復元に失敗しました。')
+      if (__DEV__) {
+        console.error('[IAP] restore error', e)
+      }
+    }
+  }, [injectEntitlementsToCurrentPage])
+
   const retry = useCallback(() => {
     debugLog('retry', { uri })
     setHasError(false)
@@ -402,43 +424,11 @@ export function DashboardScreen() {
         </View>
       )}
 
-      <Pressable
-        style={{
-          position: 'absolute',
-          right: 12,
-          bottom: 12,
-          backgroundColor: '#111827',
-          paddingVertical: 10,
-          paddingHorizontal: 14,
-          borderRadius: 8,
-          zIndex: 9999,
-        }}
-        onPress={async () => {
-          try {
-            const userId = await getOrCreateUserId()
-            const info = await restorePurchasesSafe()
-            if (!info) {
-              Alert.alert('復元失敗', '復元に失敗しました。')
-              return
-            }
-
-            setCustomerInfo(info)
-            const flags = buildEntitlementFlags(info)
-            injectEntitlementsToCurrentPage(flags)
-
-            await syncPurchasesToBackend(info, userId)
-
-            Alert.alert('復元完了')
-          } catch (e) {
-            Alert.alert('復元失敗', '復元に失敗しました。')
-            if (__DEV__) {
-              console.error('[IAP] restore error', e)
-            }
-          }
-        }}
-      >
-        <Text style={{ color: 'white', fontWeight: 'bold' }}>復元</Text>
-      </Pressable>
+      <View style={styles.purchaseActionArea}>
+        <Pressable style={styles.restoreButton} onPress={handleRestorePress}>
+          <Text style={styles.restoreButtonText}>購入の復元</Text>
+        </Pressable>
+      </View>
     </SafeAreaView>
   )
 }
@@ -472,4 +462,23 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
   },
   retryText: { color: '#FFFFFF', fontWeight: '700', fontSize: 14 },
+  purchaseActionArea: {
+    borderTopWidth: 1,
+    borderTopColor: '#E5E7EB',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    backgroundColor: '#FFFFFF',
+  },
+  restoreButton: {
+    alignSelf: 'center',
+    backgroundColor: '#4F46E5',
+    borderRadius: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+  },
+  restoreButtonText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '700',
+  },
 })
