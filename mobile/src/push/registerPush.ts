@@ -84,23 +84,29 @@ export async function registerPushToken(expoPushToken: string): Promise<Register
     const ct = res.headers.get('content-type') ?? ''
     if (ct.includes('application/json')) {
       const json = (await res.json()) as RegisterPushResult
-      console.log(
-        '[push] register 成功',
-        { token: expoPushToken, user_id: userId, backend: BACKEND_URL, result: json },
-      )
+      if (__DEV__) {
+        console.log(
+          '[push] register 成功',
+          { token: expoPushToken, user_id: userId, backend: BACKEND_URL, result: json },
+        )
+      }
       return json
     }
 
-    console.log(
-      '[push] register 成功(非JSON)',
-      { token: expoPushToken, user_id: userId, backend: BACKEND_URL, appVersion: Application.nativeApplicationVersion },
-    )
+    if (__DEV__) {
+      console.log(
+        '[push] register 成功(非JSON)',
+        { token: expoPushToken, user_id: userId, backend: BACKEND_URL, appVersion: Application.nativeApplicationVersion },
+      )
+    }
     return { ok: true }
   } catch (e: any) {
     // Abort は「静かに失敗」でOK（審査で落とさない）
     const name = e?.name ?? ''
     if (name === 'AbortError') {
-      console.log('[push] register timeout (aborted)')
+      if (__DEV__) {
+        console.log('[push] register timeout (aborted)')
+      }
       return { ok: false }
     }
     throw e
