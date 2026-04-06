@@ -51,7 +51,7 @@ import { getScoreZoneText } from '../utils/alertState'
 import SellTimingAvatarCard from './SellTimingAvatarCard'
 import { decideSellAction } from '../domain/sellDecision'
 import { apiClient, buildUrl } from '../apiClient'
-import { PURCHASE_NOTICE_MESSAGE, isIndexLocked, isNikkeiUnlocked } from '../utils/entitlements'
+import { PURCHASE_NOTICE_MESSAGE, isNikkeiUnlocked } from '../utils/entitlements'
 
 // ★ 追加：イベント API 用
 import { fetchEvents, type EventItem } from '../apis'
@@ -306,6 +306,7 @@ type PurchaseResultDetail = {
   ok?: boolean
   indexType?: IndexType
 }
+type EntitlementFlags = Record<string, boolean>
 
 const PURCHASE_EVENT_NAME = 'timetosell:purchase-result'
 const EVAL_DEBUG_ALERT_ENABLED = true
@@ -355,27 +356,124 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
   const [events, setEvents] = useState<EventItem[]>([])
   const [isEventsLoading, setIsEventsLoading] = useState(false)
   const [eventsError, setEventsError] = useState<string | null>(null)
-  const [nikkeiUnlocked, setNikkeiUnlocked] = useState(false)
+  const [entitlementFlags, setEntitlementFlags] = useState<EntitlementFlags>({})
   const [isPurchasing, setIsPurchasing] = useState(false)
 
-  useEffect(() => {
-    setNikkeiUnlocked(isNikkeiUnlocked())
-  }, [])
+  const isIndexUnlockedByFlags = useCallback(
+    (index: IndexType): boolean => {
+      switch (index) {
+        case 'SP500':
+          return true
+        case 'sp500_jpy':
+          return Boolean(entitlementFlags.sp500_jpy)
+        case 'TOPIX':
+          return Boolean(entitlementFlags.topix)
+        case 'NIKKEI':
+          return Boolean(entitlementFlags.nikkei225 || entitlementFlags.nikkei_unlock)
+        case 'NIFTY50':
+          return Boolean(entitlementFlags.nifty50)
+        case 'ORUKAN':
+          return Boolean(entitlementFlags.allcountry)
+        case 'orukan_jpy':
+          return Boolean(entitlementFlags.allcountry_jpy)
+        default:
+          return false
+      }
+    },
+    [entitlementFlags],
+  )
+
+  const isAnyPaidIndexUnlocked = useMemo(
+    () =>
+      AVAILABLE_INDEX_TYPES.some(
+        (index) => index !== 'SP500' && isIndexUnlockedByFlags(index),
+      ),
+    [isIndexUnlockedByFlags],
+  )
 
   useEffect(() => {
-    const onStorage = () => setNikkeiUnlocked(isNikkeiUnlocked())
+    if (typeof window === 'undefined') return
+
+    const updateFromFlags = (rawFlags: Record<string, unknown>) => {
+      const nextFlags = Object.entries(rawFlags).reduce<EntitlementFlags>((acc, [key, value]) => {
+        acc[key] = Boolean(value)
+        return acc
+      }, {})
+      setEntitlementFlags(nextFlags)
+    }
+
+    const syncFromWindowEntitlements = () => {
+      const win = window as Window & {
+        __TIMETOSELL_ENTITLEMENT__?: Record<string, unknown>
+      }
+      if (win.__TIMETOSELL_ENTITLEMENT__) {
+        updateFromFlags(win.__TIMETOSELL_ENTITLEMENT__)
+      } else {
+        updateFromFlags({ nikkei_unlock: isNikkeiUnlocked() })
+      }
+    }
+
+    const parseFlagsMessage = (raw: unknown): Record<string, unknown> | null => {
+      if (typeof raw === 'string') {
+        try {
+          const parsed = JSON.parse(raw) as unknown
+          return parseFlagsMessage(parsed)
+        } catch {
+          return null
+        }
+      }
+      if (typeof raw !== 'object' || raw === null) return null
+
+      const data = raw as Record<string, unknown>
+      if (data.type === 'ENTITLEMENT_FLAGS' && typeof data.flags === 'object' && data.flags !== null) {
+        return data.flags as Record<string, unknown>
+      }
+      if (
+        'nikkei_unlock' in data ||
+        'sp500_jpy' in data ||
+        'topix' in data ||
+        'nikkei225' in data ||
+        'allcountry' in data ||
+        'allcountry_jpy' in data
+      ) {
+        return data
+      }
+      return null
+    }
+
+    const onMessage = (event: MessageEvent) => {
+      const flags = parseFlagsMessage(event.data)
+      if (flags) updateFromFlags(flags)
+    }
+
+    const onStorage = () => syncFromWindowEntitlements()
+
+    const bridgeWindow = window as Window & {
+      updateEntitlements?: (flags: Record<string, unknown>) => void
+    }
+    bridgeWindow.updateEntitlements = (flags) => {
+      updateFromFlags(flags)
+    }
+
+    syncFromWindowEntitlements()
+    window.addEventListener('message', onMessage)
     window.addEventListener('storage', onStorage)
-    return () => window.removeEventListener('storage', onStorage)
+
+    return () => {
+      window.removeEventListener('message', onMessage)
+      window.removeEventListener('storage', onStorage)
+      delete bridgeWindow.updateEntitlements
+    }
   }, [])
 
   useEffect(() => {
     const normalized = normalizeIndexTypeForPlan(indexType)
-    const fallback = isIndexLocked(normalized, nikkeiUnlocked) ? 'SP500' : normalized
+    const fallback = isIndexUnlockedByFlags(normalized) ? normalized : 'SP500'
     if (fallback !== indexType) {
       setIndexType(fallback)
       setLastRequest((prev) => ({ ...prev, index_type: fallback }))
     }
-  }, [indexType, nikkeiUnlocked])
+  }, [indexType, isIndexUnlockedByFlags])
 
   const requestNativePurchase = useCallback((targetIndex: IndexType): Promise<boolean> => {
     if (typeof window === 'undefined') return Promise.resolve(false)
@@ -417,7 +515,7 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
 
   const handleIndexSelect = useCallback(async (nextIndex: IndexType) => {
     const normalized = normalizeIndexTypeForPlan(nextIndex)
-    if (!isIndexLocked(normalized, nikkeiUnlocked)) {
+    if (isIndexUnlockedByFlags(normalized)) {
       setIndexType(normalized)
       return
     }
@@ -436,15 +534,14 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
         return
       }
 
-      const unlocked = isNikkeiUnlocked()
-      setNikkeiUnlocked(unlocked)
+      const unlocked = isIndexUnlockedByFlags(normalized)
       if (unlocked) {
         setIndexType(normalized)
       }
     } finally {
       setIsPurchasing(false)
     }
-  }, [isPurchasing, nikkeiUnlocked, requestNativePurchase])
+  }, [isIndexUnlockedByFlags, isPurchasing, requestNativePurchase])
 
   const tooltipTexts = useMemo(
     () => buildTooltips(indexType, lastRequest.score_ma),
@@ -986,7 +1083,7 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
         </Typography>
       </Box>
 
-      {!nikkeiUnlocked && (
+      {!isAnyPaidIndexUnlocked && (
         <Alert severity="info">{PURCHASE_NOTICE_MESSAGE}</Alert>
       )}
 
@@ -1004,7 +1101,7 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
           >
             {AVAILABLE_INDEX_TYPES.map((key) => (
               <MenuItem key={key} value={key}>
-                {isIndexLocked(key, nikkeiUnlocked) ? `${INDEX_LABELS[key]}（購入が必要）` : INDEX_LABELS[key]}
+                {!isIndexUnlockedByFlags(key) ? `${INDEX_LABELS[key]}（購入が必要）` : INDEX_LABELS[key]}
               </MenuItem>
             ))}
           </Select>

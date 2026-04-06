@@ -77,6 +77,9 @@ export function DashboardScreen() {
   const [hasError, setHasError] = useState(false)
   const [errorMessage, setErrorMessage] = useState('通信環境を確認して再読み込みしてください。')
   const [customerInfo, setCustomerInfo] = useState<CustomerInfo | null>(null)
+  const [entitlementFlags, setEntitlementFlags] = useState<Record<string, boolean>>(
+    buildEntitlementFlags(null),
+  )
   const [purchaseChecked, setPurchaseChecked] = useState<boolean>(false)
 
   const logIapError = useCallback((step: string, message: string, error: unknown) => {
@@ -85,7 +88,6 @@ export function DashboardScreen() {
 
   const uri = useMemo(() => WEB_DASHBOARD_URL, [])
 
-  const entitlementFlags = useMemo(() => buildEntitlementFlags(customerInfo), [customerInfo])
   const injectedBeforeContentLoad = useMemo(() => {
     const payload = JSON.stringify(entitlementFlags)
     return `
@@ -135,12 +137,21 @@ export function DashboardScreen() {
   const applyCustomerInfoToState = useCallback(
     (info: CustomerInfo | null) => {
       setCustomerInfo(info)
-      injectEntitlementsToCurrentPage(buildEntitlementFlags(info))
     },
-    [injectEntitlementsToCurrentPage],
+    [],
   )
 
-  const syncRevenueCatState = useCallback(async () => {
+  useEffect(() => {
+    const nextFlags = buildEntitlementFlags(customerInfo)
+    setEntitlementFlags(nextFlags)
+    injectEntitlementsToCurrentPage(nextFlags)
+  }, [customerInfo, injectEntitlementsToCurrentPage])
+
+  const forceReloadWebView = useCallback(() => {
+    setWebViewKey((prev) => prev + 1)
+  }, [])
+
+  const syncRevenueCatState = useCallback(async (options?: { reloadWebView?: boolean }) => {
     if (!revenueCatReadyRef.current) {
       return
     }
@@ -162,6 +173,9 @@ export function DashboardScreen() {
 
       applyCustomerInfoToState(info)
       latestStateAppliedAtRef.current = Date.now()
+      if (options?.reloadWebView) {
+        forceReloadWebView()
+      }
     } catch (error) {
       logIapError('step-5', 'syncRevenueCatState failed', error)
       if (WEBVIEW_DEBUG) console.error('[dashboard-webview] syncRevenueCatState failed', error)
@@ -169,7 +183,7 @@ export function DashboardScreen() {
     } finally {
       setPurchaseChecked(true)
     }
-  }, [applyCustomerInfoToState, logIapError])
+  }, [applyCustomerInfoToState, forceReloadWebView, logIapError])
 
   useEffect(() => {
     let isMounted = true
@@ -202,7 +216,7 @@ export function DashboardScreen() {
   useEffect(() => {
     const sub = AppState.addEventListener('change', (state) => {
       if (state === 'active' && revenueCatReadyRef.current) {
-        void syncRevenueCatState()
+        void syncRevenueCatState({ reloadWebView: true })
       }
     })
     return () => sub.remove()
@@ -231,26 +245,32 @@ export function DashboardScreen() {
             const secondInfo = await getCustomerInfoSafe()
             latestStateAppliedAtRef.current = Date.now()
             applyCustomerInfoToState(secondInfo)
+            forceReloadWebView()
 
             const finalInfo = secondInfo ?? nextInfo
             unlocked = isIndexUnlocked(data.indexType, finalInfo)
-            if (!purchaseResult.transactionId || !purchaseResult.productId) {
-              unlocked = false
-              Alert.alert('購入', '購入に失敗しました。')
-            } else {
+            if (purchaseResult.transactionId && purchaseResult.productId) {
               const userId = await getOrCreateUserId()
-              const synced = await syncSinglePurchaseToBackend(
-                userId,
-                purchaseResult.productId,
-                purchaseResult.transactionId,
-              )
-              if (!synced) {
-                unlocked = false
-                Alert.alert('購入', '購入に失敗しました。')
-              } else {
-                Alert.alert('購入', unlocked ? '購入が完了しました。' : '購入に失敗しました。')
+              try {
+                const synced = await syncSinglePurchaseToBackend(
+                  userId,
+                  purchaseResult.productId,
+                  purchaseResult.transactionId,
+                )
+                if (!synced) {
+                  logIapError('step-10', 'backend sync failed after purchase', new Error('sync failed'))
+                }
+              } catch (syncError) {
+                logIapError('step-10', 'backend sync exception after purchase', syncError)
               }
+            } else {
+              logIapError(
+                'step-10',
+                'transaction_id is missing, skip backend sync',
+                new Error('transaction_id missing'),
+              )
             }
+            Alert.alert('購入', unlocked ? '購入が完了しました。' : '購入に失敗しました。')
           } catch (purchaseError) {
             logIapError('step-10', 'purchase failed', purchaseError)
             Alert.alert('購入', '購入に失敗しました。')
@@ -276,6 +296,7 @@ export function DashboardScreen() {
               Alert.alert('復元失敗', '復元に失敗しました。')
             } else {
               applyCustomerInfoToState(nextInfo)
+              forceReloadWebView()
               const userId = await getOrCreateUserId()
               await syncPurchasesToBackend(nextInfo, userId)
               Alert.alert('復元完了')
@@ -300,7 +321,7 @@ export function DashboardScreen() {
         if (WEBVIEW_DEBUG) console.error('[dashboard-webview] message handling failed', error)
       }
     },
-    [applyCustomerInfoToState, logIapError],
+    [applyCustomerInfoToState, forceReloadWebView, logIapError],
   )
 
   const onWebViewMessage = useCallback(
@@ -320,6 +341,7 @@ export function DashboardScreen() {
       }
 
       applyCustomerInfoToState(info)
+      forceReloadWebView()
       await syncPurchasesToBackend(info, userId)
       Alert.alert('復元完了')
     } catch (e) {
@@ -328,7 +350,7 @@ export function DashboardScreen() {
         console.error('[IAP] restore error', e)
       }
     }
-  }, [applyCustomerInfoToState])
+  }, [applyCustomerInfoToState, forceReloadWebView])
 
   const retry = useCallback(() => {
     debugLog('retry', { uri })
