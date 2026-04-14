@@ -10,14 +10,12 @@ interface RegisterRequestBody {
   install_id?: string
   // Optional metadata
   index_type?: string
-  threshold?: number
   paid?: boolean
 }
 
 interface PushTokenEntry {
   expo_push_token: string
   index_type: string
-  threshold: number
   paid: boolean
   registered_at: string
 }
@@ -42,7 +40,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const entry: PushTokenEntry = {
     expo_push_token: pushToken,
     index_type: body.index_type ?? 'SP500',
-    threshold: body.threshold ?? 70,
     paid: body.paid ?? false,
     registered_at: new Date().toISOString(),
   }

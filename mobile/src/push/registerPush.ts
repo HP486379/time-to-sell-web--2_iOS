@@ -69,7 +69,6 @@ export async function registerPushToken(expoPushToken: string): Promise<Register
         token: expoPushToken,
         user_id: userId,
         index_type: DEFAULT_FREE_INDEX_TYPE,
-        threshold: 70,
         paid: false,
       }),
       signal: controller.signal,
