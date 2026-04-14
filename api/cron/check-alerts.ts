@@ -1,7 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 import { kv } from '@vercel/kv'
 
-const DEFAULT_SCORE_THRESHOLD = 70
+const ALERT_THRESHOLD = 60
 
 const BACKEND_URL =
   process.env.BACKEND_URL ?? 'https://time-to-sell-web-ios.onrender.com'
@@ -9,7 +9,6 @@ const BACKEND_URL =
 interface PushTokenEntry {
   expo_push_token: string
   index_type: string
-  threshold: number
   paid: boolean
   registered_at: string
 }
@@ -27,6 +26,13 @@ interface ExpoPushMessage {
   sound: string
   title: string
   body: string
+}
+
+interface NotificationState {
+  previous_score: number | null
+  above_threshold: boolean
+  last_notified_at: string | null
+  updated_at: string
 }
 
 // Cache of fetched scores per index_type to avoid duplicate API calls
@@ -80,6 +86,51 @@ async function sendExpoPushNotifications(
   }
 }
 
+function parseUserIdFromPushTokenKey(key: string): string | null {
+  const prefix = 'push_token:'
+  if (!key.startsWith(prefix)) return null
+  const userId = key.slice(prefix.length)
+  return userId || null
+}
+
+function buildNotificationStateKey(userId: string, indexType: string): string {
+  return `push_state:${userId}:${indexType}`
+}
+
+async function loadNotificationState(
+  userId: string,
+  indexType: string
+): Promise<NotificationState> {
+  const raw = await kv.get<string | NotificationState>(buildNotificationStateKey(userId, indexType))
+  if (!raw) {
+    return {
+      previous_score: null,
+      above_threshold: false,
+      last_notified_at: null,
+      updated_at: new Date(0).toISOString(),
+    }
+  }
+
+  const parsed =
+    typeof raw === 'string' ? (JSON.parse(raw) as Partial<NotificationState>) : (raw as Partial<NotificationState>)
+
+  return {
+    previous_score: typeof parsed.previous_score === 'number' ? parsed.previous_score : null,
+    above_threshold: parsed.above_threshold === true,
+    last_notified_at:
+      typeof parsed.last_notified_at === 'string' ? parsed.last_notified_at : null,
+    updated_at: typeof parsed.updated_at === 'string' ? parsed.updated_at : new Date(0).toISOString(),
+  }
+}
+
+async function saveNotificationState(
+  userId: string,
+  indexType: string,
+  state: NotificationState
+): Promise<void> {
+  await kv.set(buildNotificationStateKey(userId, indexType), JSON.stringify(state))
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   // Verify cron secret to prevent unauthorized invocations
   const cronSecret = process.env.CRON_SECRET
@@ -96,32 +147,102 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(200).json({ ok: true, sent: 0, message: 'No registered tokens' })
   }
 
-  // Load all token entries and build per-user push messages
-  // Scores are fetched once per unique index_type via the scoreCache
+  // Load all token entries and build per-user/index push messages.
+  // Scores are fetched once per unique index_type via the scoreCache.
   const messages: ExpoPushMessage[] = []
+  const decisionLogs: Array<Record<string, unknown>> = []
   for (const key of keys) {
-    const raw = await kv.get<string>(key)
-    if (!raw) continue
+    try {
+      const raw = await kv.get<string>(key)
+      if (!raw) continue
 
-    const entry: PushTokenEntry =
-      typeof raw === 'string' ? (JSON.parse(raw) as PushTokenEntry) : (raw as PushTokenEntry)
+      const userId = parseUserIdFromPushTokenKey(key)
+      if (!userId) {
+        decisionLogs.push({
+          key,
+          notified: false,
+          reason: 'invalid_push_token_key',
+        })
+        continue
+      }
 
-    if (!entry.expo_push_token) continue
+      const entry: PushTokenEntry =
+        typeof raw === 'string' ? (JSON.parse(raw) as PushTokenEntry) : (raw as PushTokenEntry)
 
-    const indexType = entry.index_type ?? 'SP500'
-    const score = await getScore(indexType)
-    if (score === null) continue
+      if (!entry.expo_push_token) {
+        decisionLogs.push({
+          userId,
+          indexType: entry.index_type ?? 'SP500',
+          notified: false,
+          reason: 'missing_expo_push_token',
+        })
+        continue
+      }
 
-    const userThreshold =
-      typeof entry.threshold === 'number' ? entry.threshold : DEFAULT_SCORE_THRESHOLD
-    if (score >= userThreshold) {
-      messages.push({
-        to: entry.expo_push_token,
-        sound: 'default',
-        title: '🔔 売り時アラート',
-        body: `売り時スコアが ${score} に達しました。今が売り時かもしれません！`,
+      const indexType = entry.index_type ?? 'SP500'
+      const score = await getScore(indexType)
+      const previousState = await loadNotificationState(userId, indexType)
+
+      if (score === null) {
+        decisionLogs.push({
+          userId,
+          indexType,
+          score: null,
+          previousAboveThreshold: previousState.above_threshold,
+          notified: false,
+          reason: 'score_unavailable',
+        })
+        continue
+      }
+
+      const isAboveThreshold = score > ALERT_THRESHOLD
+      const shouldNotify = !previousState.above_threshold && isAboveThreshold
+      const reason = shouldNotify
+        ? 'sent'
+        : !isAboveThreshold
+          ? 'below_threshold'
+          : 'already_above_threshold'
+
+      if (shouldNotify) {
+        messages.push({
+          to: entry.expo_push_token,
+          sound: 'default',
+          title: '売り時くん通知',
+          body: `${indexType} の総合スコアが 60 を超えました（現在 ${score.toFixed(1)}）`,
+        })
+      }
+
+      await saveNotificationState(userId, indexType, {
+        previous_score: score,
+        above_threshold: isAboveThreshold,
+        last_notified_at: shouldNotify
+          ? new Date().toISOString()
+          : previousState.last_notified_at,
+        updated_at: new Date().toISOString(),
       })
+
+      decisionLogs.push({
+        userId,
+        indexType,
+        score,
+        previousAboveThreshold: previousState.above_threshold,
+        currentAboveThreshold: isAboveThreshold,
+        notified: shouldNotify,
+        reason,
+      })
+    } catch (err) {
+      decisionLogs.push({
+        key,
+        notified: false,
+        reason: 'entry_processing_error',
+        error: String(err),
+      })
+      continue
     }
+  }
+
+  for (const log of decisionLogs) {
+    console.log('[push][decision]', JSON.stringify(log))
   }
 
   if (!messages.length) {
@@ -132,4 +253,3 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   return res.status(200).json({ ok: true, sent: messages.length })
 }
-
