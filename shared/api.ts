@@ -4,7 +4,7 @@ const ENV_API_BASE =
   (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env
     ?.EXPO_PUBLIC_API_BASE_URL
 
-const RENDER_API_BASE = 'https://time-to-sell-web-ios.onrender.com'
+const RENDER_API_BASE = 'https://mai-rishi-kun.onrender.com'
 
 const CANDIDATE_API_BASE = ENV_API_BASE ?? RENDER_API_BASE
 

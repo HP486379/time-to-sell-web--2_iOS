@@ -13,7 +13,7 @@ npm install
 
 ```bash
 EXPO_PUBLIC_API_BASE_URL=https://time-to-sell-web-2.vercel.app
-EXPO_PUBLIC_BACKEND_URL=https://time-to-sell-web-ios.onrender.com
+EXPO_PUBLIC_BACKEND_URL=https://mai-rishi-kun.onrender.com
 EXPO_PUBLIC_DASHBOARD_URL=https://time-to-sell-web-ios.vercel.app/
 # 任意: WebView ログ
 EXPO_PUBLIC_WEBVIEW_DEBUG=1
