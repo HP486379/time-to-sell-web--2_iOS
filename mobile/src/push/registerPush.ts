@@ -9,7 +9,7 @@ const RAW_BACKEND_URL =
 const BACKEND_URL =
   RAW_BACKEND_URL && RAW_BACKEND_URL.trim().length > 0
     ? RAW_BACKEND_URL.trim()
-    : 'https://time-to-sell-web-2-ios-api.vercel.app'
+    : 'https://mai-rishi-kun.onrender.com'
 
 const USER_ID_KEY = 'timetosell_user_id'
 
