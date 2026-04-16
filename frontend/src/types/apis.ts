@@ -11,6 +11,17 @@ export interface BacktestRequest {
 }
 
 export interface BacktestResult {
+  summary?: {
+    final_asset?: number
+    buy_and_hold_asset?: number
+    total_return?: number
+    max_drawdown?: number
+    final_value?: number
+    buy_and_hold_final?: number
+    total_return_pct?: number
+    max_drawdown_pct?: number
+    trade_count?: number
+  }
   // Current API keys
   final_asset?: number
   buy_and_hold_asset?: number

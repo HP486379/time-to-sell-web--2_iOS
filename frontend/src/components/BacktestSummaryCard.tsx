@@ -59,10 +59,11 @@ export const BacktestSummaryCard: React.FC<{ indexType: IndexType }> = ({ indexT
     }
   }
 
-  const finalAsset = result?.final_asset ?? result?.final_value
-  const buyAndHoldAsset = result?.buy_and_hold_asset ?? result?.buy_and_hold_final
-  const totalReturn = result?.total_return ?? result?.total_return_pct
-  const maxDrawdown = result?.max_drawdown ?? result?.max_drawdown_pct
+  const summary = result?.summary && typeof result.summary === 'object' ? result.summary : result
+  const finalAsset = summary?.final_asset ?? summary?.final_value
+  const buyAndHoldAsset = summary?.buy_and_hold_asset ?? summary?.buy_and_hold_final
+  const totalReturn = summary?.total_return ?? summary?.total_return_pct
+  const maxDrawdown = summary?.max_drawdown ?? summary?.max_drawdown_pct
 
   return (
     <Card>
@@ -98,7 +99,7 @@ export const BacktestSummaryCard: React.FC<{ indexType: IndexType }> = ({ indexT
             </Typography>
             <Typography variant="body2">
               売買回数:{' '}
-              <strong>{typeof result.trade_count === 'number' ? `${result.trade_count} 回` : '-'}</strong>
+              <strong>{typeof summary?.trade_count === 'number' ? `${summary.trade_count} 回` : '-'}</strong>
             </Typography>
           </Stack>
         ) : (
