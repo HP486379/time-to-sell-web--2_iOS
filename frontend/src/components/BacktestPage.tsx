@@ -33,6 +33,10 @@ const DEFAULT_REQUEST: BacktestRequest = {
 }
 
 const currencyFmt = new Intl.NumberFormat('ja-JP', { style: 'currency', currency: 'JPY', maximumFractionDigits: 0 })
+const currencySafeFmt = (v: unknown) => {
+  const num = typeof v === 'number' ? v : typeof v === 'string' ? Number(v) : NaN
+  return Number.isFinite(num) ? currencyFmt.format(num) : '-'
+}
 const pctFmt = (v: unknown) => {
   const num = typeof v === 'number' ? v : typeof v === 'string' ? Number(v) : NaN
   return Number.isFinite(num) ? `${num.toFixed(2)} %` : '-'
@@ -94,6 +98,12 @@ export function BacktestPage() {
     ...p,
     buyHold: result?.buy_hold_history?.[idx]?.value ?? null,
   }))
+
+  const summary = result?.summary && typeof result.summary === 'object' ? result.summary : result
+  const finalAsset = summary?.final_asset ?? summary?.final_value
+  const buyAndHoldAsset = summary?.buy_and_hold_asset ?? summary?.buy_and_hold_final
+  const totalReturn = summary?.total_return ?? summary?.total_return_pct
+  const maxDrawdown = summary?.max_drawdown ?? summary?.max_drawdown_pct
 
   return (
     <Container maxWidth="lg" sx={{ py: 4 }}>
@@ -211,19 +221,19 @@ export function BacktestPage() {
             {result ? (
               <Stack spacing={0.5}>
                 <Typography variant="body2">
-                  最終資産: <strong>{currencyFmt.format(result.final_value)}</strong>
+                  最終資産: <strong>{currencySafeFmt(finalAsset)}</strong>
                 </Typography>
                 <Typography variant="body2">
-                  単純ホールド: <strong>{currencyFmt.format(result.buy_and_hold_final)}</strong>
+                  単純ホールド: <strong>{currencySafeFmt(buyAndHoldAsset)}</strong>
                 </Typography>
                 <Typography variant="body2">
-                  トータルリターン: <strong>{pctFmt(result.total_return_pct)}</strong>
+                  トータルリターン: <strong>{pctFmt(totalReturn)}</strong>
                 </Typography>
                 <Typography variant="body2">
-                  最大ドローダウン: <strong>{pctFmt(result.max_drawdown_pct)}</strong>
+                  最大ドローダウン: <strong>{pctFmt(maxDrawdown)}</strong>
                 </Typography>
                 <Typography variant="body2">
-                  売買回数: <strong>{result.trade_count ?? '-'} 回</strong>
+                  売買回数: <strong>{typeof summary?.trade_count === 'number' ? `${summary.trade_count} 回` : '-'}</strong>
                 </Typography>
               </Stack>
             ) : (
