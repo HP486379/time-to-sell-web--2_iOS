@@ -59,6 +59,11 @@ export const BacktestSummaryCard: React.FC<{ indexType: IndexType }> = ({ indexT
     }
   }
 
+  const finalAsset = result?.final_asset ?? result?.final_value
+  const buyAndHoldAsset = result?.buy_and_hold_asset ?? result?.buy_and_hold_final
+  const totalReturn = result?.total_return ?? result?.total_return_pct
+  const maxDrawdown = result?.max_drawdown ?? result?.max_drawdown_pct
+
   return (
     <Card>
       <CardHeader
@@ -80,19 +85,20 @@ export const BacktestSummaryCard: React.FC<{ indexType: IndexType }> = ({ indexT
         {result ? (
           <Stack spacing={0.5}>
             <Typography variant="body2">
-              最終資産: <strong>{formatCurrency(result.final_value)}</strong>
+              最終資産: <strong>{formatCurrency(finalAsset)}</strong>
             </Typography>
             <Typography variant="body2">
-              単純ホールド: <strong>{formatCurrency(result.buy_and_hold_final)}</strong>
+              単純ホールド: <strong>{formatCurrency(buyAndHoldAsset)}</strong>
             </Typography>
             <Typography variant="body2">
-              トータルリターン: <strong>{formatPct(result.total_return_pct)}</strong>
+              トータルリターン: <strong>{formatPct(totalReturn)}</strong>
             </Typography>
             <Typography variant="body2">
-              最大ドローダウン: <strong>{formatPct(result.max_drawdown_pct)}</strong>
+              最大ドローダウン: <strong>{formatPct(maxDrawdown)}</strong>
             </Typography>
             <Typography variant="body2">
-              売買回数: <strong>{result.trade_count ?? '-'} 回</strong>
+              売買回数:{' '}
+              <strong>{typeof result.trade_count === 'number' ? `${result.trade_count} 回` : '-'}</strong>
             </Typography>
           </Stack>
         ) : (
