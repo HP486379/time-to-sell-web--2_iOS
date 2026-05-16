@@ -22,14 +22,70 @@ import type { BacktestRequest, BacktestResult } from '../types/apis'
 import { AVAILABLE_INDEX_TYPES, INDEX_LABELS, normalizeIndexTypeForPlan, type IndexType } from '../types/index'
 import { PURCHASE_NOTICE_MESSAGE, isIndexLocked, isNikkeiUnlocked } from '../utils/entitlements'
 
+const BACKTEST_START_DATES: Record<IndexType, string> = {
+  SP500: '2000-01-01',
+  sp500_jpy: '2000-01-01',
+  TOPIX: '2008-01-04',
+  NIKKEI: '2000-01-01',
+  NIFTY50: '2007-09-17',
+  ORUKAN: '2008-03-28',
+  orukan_jpy: '2008-03-28',
+}
+
+const FULL_2005_INDEX_TYPES: IndexType[] = ['SP500', 'sp500_jpy', 'NIKKEI']
+const DEFAULT_LONG_PRECOMPUTED_START_DATES = ['2010-01-01', '2015-01-01']
+const PRECOMPUTED_END_DATE = '2025-12-31'
+const RUNTIME_MAX_DAYS = 366 * 5
+const PRECOMPUTED_INITIAL_CASH = 1_000_000
+const PRECOMPUTED_SELL_THRESHOLD = 80
+const PRECOMPUTED_BUY_THRESHOLD = 40
+const PRECOMPUTED_SCORE_MA = 200
+
+const getPrecomputedStartDates = (indexType: IndexType): string[] => {
+  const fixedStarts = FULL_2005_INDEX_TYPES.includes(indexType)
+    ? ['2005-01-01', ...DEFAULT_LONG_PRECOMPUTED_START_DATES]
+    : DEFAULT_LONG_PRECOMPUTED_START_DATES
+  return Array.from(new Set([BACKTEST_START_DATES[indexType], ...fixedStarts])).sort()
+}
+
+const isRuntimeRangeAllowed = (startDate: string, endDate: string): boolean => {
+  const start = dayjs(startDate)
+  const end = dayjs(endDate)
+  if (!start.isValid() || !end.isValid() || end.isBefore(start)) return false
+  return end.diff(start, 'day') <= RUNTIME_MAX_DAYS
+}
+
+const isPrecomputedRequest = (request: BacktestRequest): boolean => {
+  return (
+    getPrecomputedStartDates(request.index_type).includes(request.start_date) &&
+    request.end_date === PRECOMPUTED_END_DATE &&
+    Number(request.initial_cash) === PRECOMPUTED_INITIAL_CASH &&
+    Number(request.sell_threshold) === PRECOMPUTED_SELL_THRESHOLD &&
+    Number(request.buy_threshold) === PRECOMPUTED_BUY_THRESHOLD &&
+    Number(request.score_ma) === PRECOMPUTED_SCORE_MA
+  )
+}
+
+const getBacktestValidationError = (request: BacktestRequest): string | null => {
+  if (isPrecomputedRequest(request)) return null
+  if (isRuntimeRangeAllowed(request.start_date, request.end_date)) return null
+
+  const availableStarts = getPrecomputedStartDates(request.index_type).join(' / ')
+  return (
+    `5年超のバックテストは事前計算済み期間のみ利用できます。` +
+    `対象インデックスの開始日は ${availableStarts}、終了日は ${PRECOMPUTED_END_DATE}、` +
+    `初期資金100万円・売り80・買い40・MA200にしてください。`
+  )
+}
+
 const DEFAULT_REQUEST: BacktestRequest = {
-  start_date: '2014-01-01',
-  end_date: '2024-11-30',
-  initial_cash: 1_000_000,
-  sell_threshold: 80,
-  buy_threshold: 40,
+  start_date: BACKTEST_START_DATES.SP500,
+  end_date: PRECOMPUTED_END_DATE,
+  initial_cash: PRECOMPUTED_INITIAL_CASH,
+  sell_threshold: PRECOMPUTED_SELL_THRESHOLD,
+  buy_threshold: PRECOMPUTED_BUY_THRESHOLD,
   index_type: 'SP500',
-  score_ma: 200,
+  score_ma: PRECOMPUTED_SCORE_MA,
 }
 
 const currencyFmt = new Intl.NumberFormat('ja-JP', { style: 'currency', currency: 'JPY', maximumFractionDigits: 0 })
@@ -56,7 +112,17 @@ export function BacktestPage() {
     const locked = isIndexLocked(normalized, nikkeiUnlocked)
     const fallback = locked ? 'SP500' : normalized
     if (fallback !== params.index_type) {
-      setParams((prev) => ({ ...prev, index_type: fallback }))
+      setParams((prev) => ({
+        ...prev,
+        index_type: fallback,
+        start_date: BACKTEST_START_DATES[fallback],
+        end_date: PRECOMPUTED_END_DATE,
+        initial_cash: PRECOMPUTED_INITIAL_CASH,
+        sell_threshold: PRECOMPUTED_SELL_THRESHOLD,
+        buy_threshold: PRECOMPUTED_BUY_THRESHOLD,
+        score_ma: PRECOMPUTED_SCORE_MA,
+      }))
+      setResult(null)
     }
   }, [params.index_type, nikkeiUnlocked])
 
@@ -69,10 +135,31 @@ export function BacktestPage() {
   const handleIndexChange = (value: IndexType) => {
     const normalized = normalizeIndexTypeForPlan(value)
     if (isIndexLocked(normalized, nikkeiUnlocked)) {
-      setParams((prev) => ({ ...prev, index_type: 'SP500' }))
+      setParams((prev) => ({
+        ...prev,
+        index_type: 'SP500',
+        start_date: BACKTEST_START_DATES.SP500,
+        end_date: PRECOMPUTED_END_DATE,
+        initial_cash: PRECOMPUTED_INITIAL_CASH,
+        sell_threshold: PRECOMPUTED_SELL_THRESHOLD,
+        buy_threshold: PRECOMPUTED_BUY_THRESHOLD,
+        score_ma: PRECOMPUTED_SCORE_MA,
+      }))
+      setResult(null)
       return
     }
-    setParams((prev) => ({ ...prev, index_type: normalized }))
+    setParams((prev) => ({
+      ...prev,
+      index_type: normalized,
+      start_date: BACKTEST_START_DATES[normalized],
+      end_date: PRECOMPUTED_END_DATE,
+      initial_cash: PRECOMPUTED_INITIAL_CASH,
+      sell_threshold: PRECOMPUTED_SELL_THRESHOLD,
+      buy_threshold: PRECOMPUTED_BUY_THRESHOLD,
+      score_ma: PRECOMPUTED_SCORE_MA,
+    }))
+    setResult(null)
+    setError(null)
   }
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -82,6 +169,13 @@ export function BacktestPage() {
   }
 
   const handleRun = async () => {
+    const validationError = getBacktestValidationError(params)
+    if (validationError) {
+      setError(validationError)
+      setResult(null)
+      return
+    }
+
     try {
       setLoading(true)
       setError(null)
@@ -104,6 +198,7 @@ export function BacktestPage() {
   const buyAndHoldAsset = summary?.buy_and_hold_asset ?? summary?.buy_and_hold_final
   const totalReturn = summary?.total_return ?? summary?.total_return_pct
   const maxDrawdown = summary?.max_drawdown ?? summary?.max_drawdown_pct
+  const startDateHelperText = `5年超は ${getPrecomputedStartDates(params.index_type).join(' / ')} のみ対応`
 
   return (
     <Container maxWidth="lg" sx={{ py: 4 }}>
@@ -133,6 +228,7 @@ export function BacktestPage() {
                   value={params.start_date}
                   onChange={(e) => handleChange('start_date', e.target.value)}
                   InputLabelProps={{ shrink: true }}
+                  helperText={startDateHelperText}
                 />
               </Grid>
               <Grid item xs={12} sm={6} md={3}>
