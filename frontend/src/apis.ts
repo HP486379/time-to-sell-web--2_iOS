@@ -22,10 +22,10 @@ export async function runBacktest(payload: BacktestRequest): Promise<BacktestRes
 
 /**
  * 積立バックテスト実行 API
- * POST /api/accumulation
+ * POST /api/backtest/accumulation
  */
 export async function runAccumulationBacktest(payload: AccumulationBacktestRequest): Promise<BacktestResult> {
-  const res = await apiFetch(buildUrl('/api/accumulation'), {
+  const res = await apiFetch(buildUrl('/api/backtest/accumulation'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
