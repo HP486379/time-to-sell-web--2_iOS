@@ -244,6 +244,8 @@ export function BacktestPage() {
   const sellThresholdLabel = labelNumberSafe(result?.diagnostics?.sell_threshold, labelNumberSafe(params.sell_threshold, PRECOMPUTED_SELL_THRESHOLD))
   const nearSellThresholdLabel = labelNumberSafe(scoreSamples?.near_sell_threshold, Math.max(sellThresholdLabel - 5, 0))
   const buyThresholdLabel = labelNumberSafe(result?.diagnostics?.buy_threshold, labelNumberSafe(params.buy_threshold, PRECOMPUTED_BUY_THRESHOLD))
+  const accumulationGuidance = result?.diagnostics?.index_specific_sell_adjustment_note ||
+    '積立版では保有分を売却せず、月中に過熱を検知したら次回の新規積立分を一時待機し、冷却時に再投入する。'
 
   const chartData =
     mode === 'accumulation'
@@ -488,9 +490,7 @@ export function BacktestPage() {
                     <Typography variant="body2">待機積立額: <strong>{currencySafeFmt(accumulationDiagnostics?.deferred_contribution_amount)}</strong></Typography>
                   </Grid>
                 </Grid>
-                {result.diagnostics?.index_specific_sell_adjustment_note && (
-                  <Alert severity="info">{result.diagnostics.index_specific_sell_adjustment_note}</Alert>
-                )}
+                <Alert severity="info">{accumulationGuidance}</Alert>
                 {accumulationDiagnostics?.no_trade_reason && (
                   <Alert severity="warning">
                     待機なし理由: {accumulationDiagnostics.no_trade_reason === 'score_never_reached_sell_threshold'
@@ -498,9 +498,6 @@ export function BacktestPage() {
                       : '最終積立後に過熱シグナルが出たため、次回積立待機まで進んでいません。'}
                   </Alert>
                 )}
-                <Alert severity="info">
-                  積立版では保有分を売却せず、月中に過熱を検知したら次回の新規積立分を一時待機し、冷却時に再投入する。
-                </Alert>
                 <Divider />
                 <Typography variant="subtitle2">スコア上位日</Typography>
                 {topScoreDates.length > 0 ? (
