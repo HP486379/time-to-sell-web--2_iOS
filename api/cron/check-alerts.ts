@@ -1,7 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 import { kv } from '@vercel/kv'
 
-const ALERT_THRESHOLD = 60
+const ALERT_THRESHOLD = 65
 
 const BACKEND_URL =
   process.env.BACKEND_URL ?? 'https://time-to-sell-web-ios.onrender.com'
@@ -208,7 +208,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           to: entry.expo_push_token,
           sound: 'default',
           title: '売り時くん通知',
-          body: `${indexType} の総合スコアが 60 を超えました（現在 ${score.toFixed(1)}）`,
+          body: `${indexType} の総合スコアが 65 を超えました（現在 ${score.toFixed(1)}）`,
         })
       }
 
