@@ -2,6 +2,7 @@ import { LineChart, Line, XAxis, YAxis, Tooltip as RechartsTooltip, ResponsiveCo
 import { Tooltip as MuiTooltip } from '@mui/material'
 import type { PricePoint } from '../../../shared/types/evaluate'
 import type { TooltipTexts } from '../tooltipTexts'
+import { useAppLanguage } from '../i18n'
 
 type LegendLabels = {
   close?: string
@@ -18,7 +19,23 @@ type Props = {
   legendLabels?: LegendLabels
 }
 
+const chartText = {
+  ja: {
+    date: '日付',
+    close: '終値',
+    closeUsd: 'ドル建て（終値）',
+  },
+  en: {
+    date: 'Date',
+    close: 'Close',
+    closeUsd: 'USD-based close',
+  },
+} as const
+
 function PriceChart({ priceSeries, simple = false, tooltips, legendLabels }: Props) {
+  const language = useAppLanguage()
+  const text = chartText[language]
+
   if (!priceSeries.length) {
     return (
       <ResponsiveContainer width="100%" height={240}>
@@ -28,6 +45,8 @@ function PriceChart({ priceSeries, simple = false, tooltips, legendLabels }: Pro
   }
 
   const hasCloseUsd = priceSeries.some((p) => p.closeUsd !== undefined)
+  const closeLabel = legendLabels?.close ?? text.close
+  const closeUsdLabel = legendLabels?.closeUsd ?? text.closeUsd
 
   return (
     <ResponsiveContainer width="100%" height={280}>
@@ -40,26 +59,26 @@ function PriceChart({ priceSeries, simple = false, tooltips, legendLabels }: Pro
           minTickGap={20}
         />
         <YAxis tick={{ fill: '#9ca3af' }} domain={['auto', 'auto']} />
-        <RechartsTooltip contentStyle={{ background: '#0b1224', border: '1px solid #334155' }} labelFormatter={(l) => `日付: ${l}`} />
+        <RechartsTooltip contentStyle={{ background: '#0b1224', border: '1px solid #334155' }} labelFormatter={(l) => `${text.date}: ${l}`} />
         {!simple && (
           <Legend
             formatter={(value) => {
               const map: Record<string, string> = {
-                終値: legendLabels?.close ?? tooltips.chart.close,
-                'ドル建て（終値）': legendLabels?.closeUsd ?? 'ドル建て（終値）',
+                [closeLabel]: legendLabels?.close ?? tooltips.chart.close,
+                [closeUsdLabel]: legendLabels?.closeUsd ?? closeUsdLabel,
                 MA20: legendLabels?.ma20 ?? tooltips.chart.ma20,
                 MA60: legendLabels?.ma60 ?? tooltips.chart.ma60,
                 MA200: legendLabels?.ma200 ?? tooltips.chart.ma200,
               }
               return (
-                <MuiTooltip title={map[value] ?? ''} arrow>
-                  <span>{value}</span>
+                <MuiTooltip title={map[String(value)] ?? ''} arrow>
+                  <span>{String(value)}</span>
                 </MuiTooltip>
               )
             }}
           />
         )}
-        <Line type="monotone" dataKey="close" stroke="#7dd3fc" strokeWidth={2} dot={false} name={legendLabels?.close ?? '終値'} />
+        <Line type="monotone" dataKey="close" stroke="#7dd3fc" strokeWidth={2} dot={false} name={closeLabel} />
         {hasCloseUsd && (
           <Line
             type="monotone"
@@ -67,7 +86,7 @@ function PriceChart({ priceSeries, simple = false, tooltips, legendLabels }: Pro
             stroke="#22c55e"
             strokeWidth={2}
             dot={false}
-            name={legendLabels?.closeUsd ?? 'ドル建て（終値）'}
+            name={closeUsdLabel}
           />
         )}
         <Line type="monotone" dataKey="ma20" stroke="#a78bfa" strokeWidth={2} dot={false} name="MA20" />
