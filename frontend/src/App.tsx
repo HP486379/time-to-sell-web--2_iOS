@@ -25,12 +25,25 @@ interface AppProps {
 const EN_TEXT_REPLACEMENTS: Record<string, string> = {
   '対象インデックス': 'Target index',
   '最終更新': 'Last updated',
+  '未更新': 'Not updated',
   '更新中…': 'Updating…',
   '再取得中…': 'Retrying…',
   '最新データを取得': 'Refresh latest data',
   'ホールド': 'Hold',
   '売り時くん': 'Uridoki-kun',
   'スコアに応じて表示が変わります': 'The character changes with the score.',
+  '時間軸別の評価（参考）': 'Time-horizon view (reference)',
+  '総合スコアは「今どうすべきか」の結論です。': 'The total score is the practical “what now?” view.',
+  'ここでは、その判断の背景を時間軸ごとの評価として確認できます。': 'Here you can review the background by time horizon.',
+  '短期目線': 'Short term',
+  '中期目線': 'Medium term',
+  '長期目線': 'Long term',
+  '短期目線の内訳': 'Short-term breakdown',
+  '中期目線の内訳': 'Medium-term breakdown',
+  '長期目線の内訳': 'Long-term breakdown',
+  'テクニカル': 'Technical',
+  'マクロ': 'Macro',
+  'イベント補正': 'Event adjustment',
   '表示モード': 'Display mode',
   '正規化': 'Normalized',
   '実価格': 'Actual price',
@@ -54,6 +67,9 @@ const EN_TEXT_REPLACEMENTS: Record<string, string> = {
   '過去のイベント': 'Past events',
   '注目': 'Watch',
   '推定': 'Estimated',
+  '直近1か月で円建てがドル建てを': 'Over the past month, the JPY-based return is',
+  '下回っています。円高（USD/JPY低下）方向の影響で、円建てリターンが抑えられています。': 'below the USD-based return. JPY strength is weighing on yen-based returns.',
+  '上回っています。円安（USD/JPY上昇）方向の影響で、円建てリターンが押し上げられています。': 'above the USD-based return. JPY weakness is lifting yen-based returns.',
   '米10年債利回り過去10年レンジに対するパーセンタイル': 'US 10Y yield percentile vs 10-year range',
   'インフレ（CPI）過去10年レンジに対するパーセンタイル': 'CPI percentile vs 10-year range',
   'VIX過去10年レンジに対するパーセンタイル': 'VIX percentile vs 10-year range',
@@ -73,9 +89,6 @@ const EN_TEXT_REPLACEMENTS: Record<string, string> = {
   'に対するパーセンタイル': 'percentile',
   'ドル建て': 'USD-based',
   '円建て': 'JPY-based',
-  'あと': 'in',
-  '日': 'days',
-  '件': '',
   '実質GDP（改定値）': 'Real GDP (revised)',
   'PCEデフレーター': 'PCE deflator',
 }
@@ -92,8 +105,9 @@ const translateRemainingDom = (language: AppLanguage) => {
       next = next.split(ja).join(en)
     }
     next = next
+      .replace(/あと\s*(\d+)\s*日/g, 'in $1 days')
+      .replace(/（(\d+)件）/g, '($1)')
       .replace(/(\d{4})年(\d{2})月/g, '$2/$1')
-      .replace(/（(\d+)）/g, '($1)')
     if (next !== original) node.nodeValue = next
   })
 }
