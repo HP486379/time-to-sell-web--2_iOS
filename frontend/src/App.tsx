@@ -23,6 +23,8 @@ interface AppProps {
 }
 
 const EN_TEXT_REPLACEMENTS: Record<string, string> = {
+  '本サービスは投資助言ではありません。表示されるスコアは参考情報であり、最終的な投資判断はご自身の責任で行ってください。': 'This service is not investment advice. Scores are for reference only. Final investment decisions are your own responsibility.',
+  'ページ更新や条件切り替え時、最新データの取得・計算のため表示が反映されるまで数秒かかる場合があります。': 'After refreshes or condition changes, it may take a few seconds for the latest data and calculations to appear.',
   '対象インデックス': 'Target index',
   '最終更新': 'Last updated',
   '未更新': 'Not updated',
@@ -41,9 +43,13 @@ const EN_TEXT_REPLACEMENTS: Record<string, string> = {
   '短期目線の内訳': 'Short-term breakdown',
   '中期目線の内訳': 'Medium-term breakdown',
   '長期目線の内訳': 'Long-term breakdown',
+  '長期目線では、過去の平均水準や構造的な割高・割安感を重視します。': 'The long-term view emphasizes historical valuation ranges and structural over/undervaluation.',
+  '「今は歴史的に見てどの位置か？」という俯瞰の視点です。': 'It answers the question: “Where are we historically?”',
+  'ここでの判断は、天井圏か、まだ余地があるかを確認する意味合いになります。': 'This helps judge whether the market is near a ceiling or still has room to run.',
   'テクニカル': 'Technical',
   'マクロ': 'Macro',
   'イベント補正': 'Event adjustment',
+  '乖離率 d': 'Deviation rate d',
   '表示モード': 'Display mode',
   '正規化': 'Normalized',
   '実価格': 'Actual price',
