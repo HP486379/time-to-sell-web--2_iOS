@@ -22,7 +22,6 @@ import {
   buildEntitlementFlags,
   configureRevenueCat,
   getCustomerInfoSafe,
-  getDefaultOfferingSafe,
   isIndexUnlocked,
   purchaseIndex,
   restorePurchasesSafe,
