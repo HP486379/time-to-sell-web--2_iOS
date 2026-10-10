@@ -160,7 +160,6 @@ export function DashboardScreen() {
     const syncStartedAt = Date.now()
 
     try {
-      await getDefaultOfferingSafe()
       const info = await getCustomerInfoSafe()
 
       if (syncRequestId !== syncRequestIdRef.current) {
@@ -192,8 +191,6 @@ export function DashboardScreen() {
       try {
         await configureRevenueCat()
 
-        await new Promise((resolve) => setTimeout(resolve, 500))
-
         if (!isMounted) return
         revenueCatReadyRef.current = true
         await syncRevenueCatState()
@@ -216,7 +213,7 @@ export function DashboardScreen() {
   useEffect(() => {
     const sub = AppState.addEventListener('change', (state) => {
       if (state === 'active' && revenueCatReadyRef.current) {
-        void syncRevenueCatState({ reloadWebView: true })
+        void syncRevenueCatState()
       }
     })
     return () => sub.remove()
