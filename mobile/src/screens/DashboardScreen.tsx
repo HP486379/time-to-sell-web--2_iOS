@@ -150,7 +150,7 @@ export function DashboardScreen() {
     setWebViewKey((prev) => prev + 1)
   }, [])
 
-  const syncRevenueCatState = useCallback(async (options?: { reloadWebView?: boolean }) => {
+  const syncRevenueCatState = useCallback(async () => {
     if (!revenueCatReadyRef.current) {
       return
     }
@@ -171,16 +171,12 @@ export function DashboardScreen() {
 
       applyCustomerInfoToState(info)
       latestStateAppliedAtRef.current = Date.now()
-      if (options?.reloadWebView) {
-        forceReloadWebView()
-      }
     } catch (error) {
       logIapError('step-5', 'syncRevenueCatState failed', error)
       if (WEBVIEW_DEBUG) console.error('[dashboard-webview] syncRevenueCatState failed', error)
       applyCustomerInfoToState(null)
-    } finally {
     }
-  }, [applyCustomerInfoToState, forceReloadWebView, logIapError])
+  }, [applyCustomerInfoToState, logIapError])
 
   useEffect(() => {
     let isMounted = true
@@ -194,8 +190,6 @@ export function DashboardScreen() {
         await syncRevenueCatState()
       } catch (error) {
         logIapError('step-0', 'initialization failed', error)
-        if (isMounted) {
-            }
       }
     }
 
