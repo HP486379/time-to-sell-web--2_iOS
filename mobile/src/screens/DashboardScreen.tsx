@@ -394,6 +394,9 @@ export function DashboardScreen() {
         }}
         onLoadEnd={({ nativeEvent }) => {
           debugLog('load-end', nativeEvent.url)
+          // A prior injection may have happened before WebView finished loading.
+          // Re-send the current entitlement flags without reloading the page.
+          injectEntitlementsToCurrentPage(buildEntitlementFlags(customerInfo))
           setIsLoading(false)
         }}
         onHttpError={({ nativeEvent }) => {
