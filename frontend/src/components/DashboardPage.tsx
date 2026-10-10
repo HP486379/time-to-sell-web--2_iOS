@@ -656,11 +656,11 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
       })
       if (isStaleByReqSeq) return
       if (isStaleByRequestId) return
-      // Preserve technical fallback accuracy: wait for history only when needed.
-      const latestSeries =
-        priceSeriesForFallback && res.data.reasons?.includes('TECHNICAL_UNAVAILABLE')
-          ? (await priceSeriesForFallback) ?? priceSeriesMap[targetIndex] ?? []
-          : priceSeriesMap[targetIndex] ?? []
+      // Preserve the original initial-score semantics: normalization always sees
+      // the completed primary price-history request, even when scores are ready.
+      const latestSeries = priceSeriesForFallback
+        ? (await priceSeriesForFallback) ?? priceSeriesMap[targetIndex] ?? []
+        : priceSeriesMap[targetIndex] ?? []
       if (reqSeq !== evalReqSeqRef.current) return
       const normalized = normalizeEvaluateResponse(res.data, latestSeries)
       const status = resolveUiStatus(normalized)
