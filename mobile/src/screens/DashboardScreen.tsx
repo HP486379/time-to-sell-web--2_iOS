@@ -80,7 +80,6 @@ export function DashboardScreen() {
   const [entitlementFlags, setEntitlementFlags] = useState<Record<string, boolean>>(
     buildEntitlementFlags(null),
   )
-  const [purchaseChecked, setPurchaseChecked] = useState<boolean>(false)
 
   const logIapError = useCallback((step: string, message: string, error: unknown) => {
     if (__DEV__) console.error(`[IAP] ${step} ${message} error=${formatErrorMessage(error)}`, error)
@@ -180,7 +179,6 @@ export function DashboardScreen() {
       if (WEBVIEW_DEBUG) console.error('[dashboard-webview] syncRevenueCatState failed', error)
       applyCustomerInfoToState(null)
     } finally {
-      setPurchaseChecked(true)
     }
   }, [applyCustomerInfoToState, forceReloadWebView, logIapError])
 
@@ -197,8 +195,7 @@ export function DashboardScreen() {
       } catch (error) {
         logIapError('step-0', 'initialization failed', error)
         if (isMounted) {
-          setPurchaseChecked(true)
-        }
+            }
       }
     }
 
@@ -379,17 +376,6 @@ export function DashboardScreen() {
     )
     return false
   }, [])
-
-  if (!purchaseChecked) {
-    return (
-      <SafeAreaView style={styles.container} edges={['top']}>
-        <View style={[styles.loadingOverlay, { position: 'relative' }]}>
-          <ActivityIndicator size="large" color="#4F46E5" />
-          <Text style={styles.loadingText}>課金状態を確認中...</Text>
-        </View>
-      </SafeAreaView>
-    )
-  }
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
