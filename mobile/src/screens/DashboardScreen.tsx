@@ -127,6 +127,9 @@ export function DashboardScreen() {
         Object.keys(flags).forEach(function (key) {
           window.localStorage.setItem('timetosell_entitlement_' + key, String(!!flags[key]));
         });
+        if (typeof window.updateEntitlements === 'function') {
+          window.updateEntitlements(flags);
+        }
       })();
       true;
     `)
