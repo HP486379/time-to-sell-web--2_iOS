@@ -618,6 +618,7 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
     payload?: Partial<EvaluateRequest>,
     markPrimary = false,
     retryCount = 0,
+    priceSeriesForFallback?: Promise<PricePoint[] | null>,
   ) => {
     const reqSeq = ++evalReqSeqRef.current
     const clientRequestId = genRequestId()
@@ -655,7 +656,12 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
       })
       if (isStaleByReqSeq) return
       if (isStaleByRequestId) return
-      const latestSeries = priceSeriesMap[targetIndex] ?? []
+      // Preserve technical fallback accuracy: wait for history only when needed.
+      const latestSeries =
+        priceSeriesForFallback && res.data.reasons?.includes('TECHNICAL_UNAVAILABLE')
+          ? (await priceSeriesForFallback) ?? priceSeriesMap[targetIndex] ?? []
+          : priceSeriesMap[targetIndex] ?? []
+      if (reqSeq !== evalReqSeqRef.current) return
       const normalized = normalizeEvaluateResponse(res.data, latestSeries)
       const status = resolveUiStatus(normalized)
       const reasons = normalized.reasons ?? []
@@ -759,7 +765,7 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
     const reqSeq = ++priceReqSeqRef.current
     try {
       const res = await apiClient.get<PricePoint[]>(getPriceHistoryEndpoint(targetIndex))
-      if (reqSeq !== priceReqSeqRef.current) return
+      if (reqSeq !== priceReqSeqRef.current) return null
       const sorted = [...res.data]
         .filter((p) => typeof p?.date === 'string' && typeof p?.close === 'number' && Number.isFinite(p?.close))
         .sort((a, b) => a.date.localeCompare(b.date))
@@ -776,8 +782,10 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
           return row
         })
       setPriceSeriesMap((prev) => ({ ...prev, [targetIndex]: sorted }))
+      return sorted
     } catch (e: any) {
       console.error('価格履歴取得に失敗しました', e)
+      return null
     }
   }
 
@@ -813,8 +821,12 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
     const primary = indexType
     const secondaryTargets = targets.filter((target) => target !== primary)
 
-    await fetchPriceSeries(primary)
-    await fetchEvaluation(primary, undefined, true)
+    // Launch score request without waiting on the independent price history request.
+    const primaryPricePromise = fetchPriceSeries(primary)
+    await Promise.all([
+      fetchEvaluation(primary, undefined, true, 0, primaryPricePromise),
+      primaryPricePromise,
+    ])
 
     await Promise.all(
       secondaryTargets.flatMap((target) => [fetchEvaluation(target), fetchPriceSeries(target)]),
