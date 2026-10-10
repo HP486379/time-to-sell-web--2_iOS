@@ -618,7 +618,6 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
     payload?: Partial<EvaluateRequest>,
     markPrimary = false,
     retryCount = 0,
-    priceSeriesForFallback?: Promise<PricePoint[] | null>,
   ) => {
     const reqSeq = ++evalReqSeqRef.current
     const clientRequestId = genRequestId()
@@ -656,12 +655,9 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
       })
       if (isStaleByReqSeq) return
       if (isStaleByRequestId) return
-      // Preserve the original initial-score semantics: normalization always sees
-      // the completed primary price-history request, even when scores are ready.
-      const latestSeries = priceSeriesForFallback
-        ? (await priceSeriesForFallback) ?? priceSeriesMap[targetIndex] ?? []
-        : priceSeriesMap[targetIndex] ?? []
-      if (reqSeq !== evalReqSeqRef.current) return
+      // Keep the same render-snapshot fallback as main, including on initial load.
+      // This avoids changing investment scores as a side effect of faster requests.
+      const latestSeries = priceSeriesMap[targetIndex] ?? []
       const normalized = normalizeEvaluateResponse(res.data, latestSeries)
       const status = resolveUiStatus(normalized)
       const reasons = normalized.reasons ?? []
@@ -821,11 +817,10 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
     const primary = indexType
     const secondaryTargets = targets.filter((target) => target !== primary)
 
-    // Launch score request without waiting on the independent price history request.
-    const primaryPricePromise = fetchPriceSeries(primary)
+    // Start both requests together. Keep main's score normalization semantics.
     await Promise.all([
-      fetchEvaluation(primary, undefined, true, 0, primaryPricePromise),
-      primaryPricePromise,
+      fetchPriceSeries(primary),
+      fetchEvaluation(primary, undefined, true),
     ])
 
     await Promise.all(
