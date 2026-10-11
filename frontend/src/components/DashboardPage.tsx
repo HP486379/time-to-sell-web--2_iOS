@@ -349,7 +349,7 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
   const [evalStatusMessageMap, setEvalStatusMessageMap] = useState<Partial<Record<IndexType, string>>>({})
   const priceReqSeqRef = useRef<Partial<Record<IndexType, number>>>({})
   const chartEpochRef = useRef<Partial<Record<IndexType, number>>>({})
-  const evalReqSeqRef = useRef(0)
+  const evalReqSeqRef = useRef<Partial<Record<IndexType, number>>>({})
   const evalRetryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const latestEvalRequestIdRef = useRef<Partial<Record<IndexType, string>>>({})
 
@@ -615,7 +615,7 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
   }
 
   const isValidPriceDate = (value: unknown): value is string => {
-    if (typeof value !== 'string' || !/^\\d{4}-\\d{2}-\\d{2}$/.test(value)) return false
+    if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false
     const parsed = new Date(value + 'T00:00:00Z')
     return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value
   }
@@ -643,7 +643,8 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
     markPrimary = false,
     retryCount = 0,
   ) => {
-    const reqSeq = ++evalReqSeqRef.current
+    const reqSeq = (evalReqSeqRef.current[targetIndex] ?? 0) + 1
+    evalReqSeqRef.current[targetIndex] = reqSeq
     const chartEpoch = (chartEpochRef.current[targetIndex] ?? 0) + 1
     chartEpochRef.current[targetIndex] = chartEpoch
     const clientRequestId = genRequestId()
@@ -663,7 +664,7 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
       const res = await apiClient.post<EvaluateResponse>(buildUrl('/api/evaluate'), body)
       const responseRequestId = res.data.request_id
       const latestRequestId = latestEvalRequestIdRef.current[targetIndex]
-      const isStaleByReqSeq = reqSeq !== evalReqSeqRef.current
+      const isStaleByReqSeq = reqSeq !== evalReqSeqRef.current[targetIndex]
       const hasComparableRequestId =
         typeof responseRequestId === 'string' && typeof latestRequestId === 'string'
       const isStaleByRequestId = hasComparableRequestId && responseRequestId !== latestRequestId
@@ -671,7 +672,7 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
         step: 'after-evaluate-response',
         indexType: targetIndex,
         reqSeq,
-        evalReqSeqCurrent: evalReqSeqRef.current,
+        evalReqSeqCurrent: evalReqSeqRef.current[targetIndex],
         request_id: responseRequestId ?? null,
         latest_request_id: latestRequestId ?? null,
         stale_by_req_seq: isStaleByReqSeq,
@@ -679,8 +680,8 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
         scores_total: res.data.scores?.total ?? null,
         response: res.data,
       })
-      if (isStaleByReqSeq) return false
-      if (isStaleByRequestId) return false
+      if (isStaleByReqSeq) return null
+      if (isStaleByRequestId) return null
       // Prefer the evaluated data snapshot for charting. Do not independently
       // fetch the same market history unless the API omitted usable chart data.
       const rawSeries = res.data.price_series
@@ -717,7 +718,7 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
         if (retryCount >= EVAL_RETRY_DELAYS_MS.length) {
           setIsEvalRetrying(false)
           setEvalStatusMap((prev) => ({ ...prev, [targetIndex]: 'degraded' }))
-          return evaluatedSeries.length > 0
+          return hasValidSeries
         }
         setIsEvalRetrying(true)
         console.warn('[EVAL DEGRADED]', {
@@ -756,7 +757,7 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
       }
       return evaluatedSeries.length > 0
     } catch (e: any) {
-      if (reqSeq !== evalReqSeqRef.current) return
+      if (reqSeq !== evalReqSeqRef.current[targetIndex]) return null
       const status = e?.response?.status
       if (markPrimary) {
         setIsEvalRetrying(false)
@@ -844,12 +845,12 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
     // The evaluate response normally includes the same chart series.
     // Avoid launching a redundant price-history request on initial load.
     const primaryHasSeries = await fetchEvaluation(primary, undefined, true)
-    if (!primaryHasSeries) await fetchPriceSeries(primary)
+    if (primaryHasSeries === false || primaryHasSeries === undefined) await fetchPriceSeries(primary)
 
     await Promise.all(
       secondaryTargets.map(async (target) => {
         const hasSeries = await fetchEvaluation(target)
-        if (!hasSeries) await fetchPriceSeries(target)
+        if (hasSeries === false || hasSeries === undefined) await fetchPriceSeries(target)
       }),
     )
     await fetchNavs()
