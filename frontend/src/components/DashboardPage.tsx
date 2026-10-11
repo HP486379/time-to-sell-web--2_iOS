@@ -613,6 +613,23 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
     }, EVAL_RETRY_DELAYS_MS[retryCount])
   }
 
+  const normalizePriceRows = (rows: PricePoint[], targetIndex: IndexType): PricePoint[] =>
+    [...rows]
+      .filter((p) => typeof p?.date === 'string' && typeof p?.close === 'number' && Number.isFinite(p.close))
+      .sort((a, b) => a.date.localeCompare(b.date))
+      .map((p, idx, validRows) => {
+        const row = {
+          ...p,
+          ma20: typeof p.ma20 === 'number' && Number.isFinite(p.ma20) ? p.ma20 : null,
+          ma60: typeof p.ma60 === 'number' && Number.isFinite(p.ma60) ? p.ma60 : null,
+          ma200: typeof p.ma200 === 'number' && Number.isFinite(p.ma200) ? p.ma200 : null,
+        }
+        if (idx === 0 || idx === validRows.length - 1) {
+          console.debug('[PRICE ROW]', { index: targetIndex, row })
+        }
+        return row
+      })
+
   const fetchEvaluation = async (
     targetIndex: IndexType,
     payload?: Partial<EvaluateRequest>,
@@ -655,9 +672,17 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
       })
       if (isStaleByReqSeq) return
       if (isStaleByRequestId) return
-      // Keep the same render-snapshot fallback as main, including on initial load.
-      // This avoids changing investment scores as a side effect of faster requests.
-      const latestSeries = priceSeriesMap[targetIndex] ?? []
+      // Prefer the evaluated data snapshot for charting. Do not independently
+      // fetch the same market history unless the API omitted usable chart data.
+      const evaluatedSeries = Array.isArray(res.data.price_series)
+        ? normalizePriceRows(res.data.price_series, targetIndex)
+        : []
+      if (evaluatedSeries.length > 0) {
+        setPriceSeriesMap((prev) => ({ ...prev, [targetIndex]: evaluatedSeries }))
+      }
+      // Preserve the existing score normalization; use the same evaluated
+      // price series for fallback only when available.
+      const latestSeries = evaluatedSeries.length > 0 ? evaluatedSeries : (priceSeriesMap[targetIndex] ?? [])
       const normalized = normalizeEvaluateResponse(res.data, latestSeries)
       const status = resolveUiStatus(normalized)
       const reasons = normalized.reasons ?? []
@@ -762,21 +787,7 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
     try {
       const res = await apiClient.get<PricePoint[]>(getPriceHistoryEndpoint(targetIndex))
       if (reqSeq !== priceReqSeqRef.current) return null
-      const sorted = [...res.data]
-        .filter((p) => typeof p?.date === 'string' && typeof p?.close === 'number' && Number.isFinite(p?.close))
-        .sort((a, b) => a.date.localeCompare(b.date))
-        .map((p, idx) => {
-          const row = {
-            ...p,
-            ma20: typeof p.ma20 === 'number' && Number.isFinite(p.ma20) ? p.ma20 : null,
-            ma60: typeof p.ma60 === 'number' && Number.isFinite(p.ma60) ? p.ma60 : null,
-            ma200: typeof p.ma200 === 'number' && Number.isFinite(p.ma200) ? p.ma200 : null,
-          }
-          if (idx === 0 || idx === res.data.length - 1) {
-            console.debug('[PRICE ROW]', { index: targetIndex, row })
-          }
-          return row
-        })
+      const sorted = normalizePriceRows(res.data, targetIndex)
       setPriceSeriesMap((prev) => ({ ...prev, [targetIndex]: sorted }))
       return sorted
     } catch (e: any) {
@@ -817,14 +828,11 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
     const primary = indexType
     const secondaryTargets = targets.filter((target) => target !== primary)
 
-    // Start both requests together. Keep main's score normalization semantics.
-    await Promise.all([
-      fetchPriceSeries(primary),
-      fetchEvaluation(primary, undefined, true),
-    ])
-
+    // The evaluate response normally includes the same chart series.
+    // Avoid launching a redundant price-history request on initial load.
+    await fetchEvaluation(primary, undefined, true)
     await Promise.all(
-      secondaryTargets.flatMap((target) => [fetchEvaluation(target), fetchPriceSeries(target)]),
+      secondaryTargets.map((target) => fetchEvaluation(target)),
     )
     await fetchNavs()
   }
