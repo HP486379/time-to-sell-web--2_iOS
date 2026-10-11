@@ -8,7 +8,7 @@ export const APP_LANGUAGE_EVENT = 'appLanguageChanged'
 export const translations = {
   ja: {
     app: {
-      title: '売り時くん', subtitle: 'テクニカル・マクロ・イベントの三軸で売り時スコアを可視化', mainTab: 'メイン画面', backtestTab: 'バックテスト画面', languageLabel: '言語', japanese: '日本語', english: 'English', modeLabel: '表示モード', simpleMode: 'かんたん', proMode: 'プロ向け',
+      title: '売り時くん', subtitle: 'テクニカル・マクロ・イベントの三軸で売り時スコアを可視化', mainTab: 'メイン画面', languageLabel: '言語', japanese: '日本語', english: 'English', modeLabel: '表示モード', simpleMode: 'かんたん', proMode: 'プロ向け',
     },
     positioning: {
       notAdvice: '本サービスは投資助言ではありません。表示されるスコアは参考情報であり、最終的な投資判断はご自身の責任で行ってください。',
@@ -27,13 +27,10 @@ export const translations = {
     scoreZones: {
       loading: 'スコアの計算中です。', sellLine: '現在のスコアは「一括投資版の売り検討ライン」です。', strong: '現在のスコアは「強めの警戒水準」です。', push: '現在のスコアは「プッシュ通知対象の過熱水準」です。', caution: '現在のスコアは「アプリ内表示の注意水準」です。', average: '現在のスコアは「平均的な水準」です。', low: '現在のスコアは「やや低めの水準」です。', veryLow: '現在のスコアは「かなり低い水準」です。',
     },
-    backtest: {
-      title: 'バックテスト専用ページ', parameters: 'パラメータ', type: 'バックテスト種別', lumpSum: '一括投資', accumulation: '積立投資', startDate: '開始日', endDate: '終了日', initialCash: '初期資金', targetIndex: '対象インデックス', monthlyAmount: '毎月積立額', profitTakePct: '利確割合（%）', profitTakePctHelp: '積立待機方式では保有分売却なし。将来の利確方式用パラメータです。', sellThreshold: '売りしきい値', sellThresholdHelp: 'この値以上で次回積立を待機', buyThreshold: '買い戻ししきい値', buyThresholdHelp: 'この値未満で待機資金を再投入', scoreMa: 'スコア算出MA', ma20: '20日（短期・2〜6週間）', ma60: '60日（中期・1〜3か月）', ma200: '200日（長期・3か月〜1年）', run: 'バックテスト実行', running: '計算中...', result: '成績', finalAsset: '最終資産', buyAndHold: '単純ホールド', regularDcaHold: '通常積立ホールド', totalContributed: '累計積立額', waitingCash: '待機資金', deferredAndReinvest: '待機積立回数 / 再投入回数', deferredAmount: '待機した積立額', totalReturn: 'トータルリターン', regularDcaReturn: '通常積立リターン', maxDrawdown: '最大ドローダウン', tradeCount: '売買回数', emptyPrompt: 'パラメータを設定して「バックテスト実行」を押してください。', diagnostics: '積立診断', diagnosticsSub: '過熱時に新規積立を待機できたかを確認するための診断情報', maxScore: '最大スコア', aboveDays: '以上の日数', belowDays: '未満の日数', deferredCount: '待機積立回数', deferredContributionAmount: '待機積立額', noTradeReason: '待機なし理由', reasonNeverReached: 'スコアが売りしきい値に到達していません。', reasonAfterFinal: '最終積立後に過熱シグナルが出たため、次回積立待機まで進んでいません。', topScoreDates: 'スコア上位日', noScoreData: 'スコア診断データがありません。', assetChart: '資産推移', priceChart: '価格推移', strategyLine: '積立＋売り時くん', holdLine: '通常積立ホールド', closeLine: '終値',
-    },
   },
   en: {
     app: {
-      title: 'Uridoki-kun', subtitle: 'A market overheat score for long-term investors: trim, rebalance, or pause DCA.', mainTab: 'Main', backtestTab: 'Backtest', languageLabel: 'Language', japanese: '日本語', english: 'English', modeLabel: 'Mode', simpleMode: 'Simple', proMode: 'Pro',
+      title: 'Uridoki-kun', subtitle: 'A market overheat score for long-term investors: trim, rebalance, or pause DCA.', mainTab: 'Main', languageLabel: 'Language', japanese: '日本語', english: 'English', modeLabel: 'Mode', simpleMode: 'Simple', proMode: 'Pro',
     },
     positioning: {
       notAdvice: 'This service is not investment advice. Scores are for reference only, and final investment decisions are your own responsibility.', delayNotice: 'When refreshing or switching conditions, it may take a few seconds for the latest data and calculations to appear.',
@@ -50,9 +47,6 @@ export const translations = {
     },
     scoreZones: {
       loading: 'Calculating the score.', sellLine: 'This score is in the lump-sum profit-taking review zone.', strong: 'This score is in the strong warning zone.', push: 'This score is in the push-notification overheat zone.', caution: 'This score is in the in-app caution zone.', average: 'This score is in the average range.', low: 'This score is slightly low.', veryLow: 'This score is very low.',
-    },
-    backtest: {
-      title: 'Backtest', parameters: 'Parameters', type: 'Backtest type', lumpSum: 'Lump sum', accumulation: 'DCA / Accumulation', startDate: 'Start date', endDate: 'End date', initialCash: 'Initial cash', targetIndex: 'Target index', monthlyAmount: 'Monthly contribution', profitTakePct: 'Trim ratio (%)', profitTakePctHelp: 'In DCA pause mode, existing holdings are not sold. This is reserved for future trim-style simulations.', sellThreshold: 'Overheat threshold', sellThresholdHelp: 'Pause the next contribution at or above this score', buyThreshold: 'Re-entry threshold', buyThresholdHelp: 'Reinvest waiting cash below this score', scoreMa: 'Score MA', ma20: '20 days (short term)', ma60: '60 days (medium term)', ma200: '200 days (long term)', run: 'Run backtest', running: 'Calculating...', result: 'Performance', finalAsset: 'Final asset', buyAndHold: 'Buy and hold', regularDcaHold: 'Regular DCA hold', totalContributed: 'Total contributed', waitingCash: 'Waiting cash', deferredAndReinvest: 'Deferred contributions / Reinvestments', deferredAmount: 'Deferred contribution amount', totalReturn: 'Total return', regularDcaReturn: 'Regular DCA return', maxDrawdown: 'Max drawdown', tradeCount: 'Trades', emptyPrompt: 'Set parameters and press “Run backtest.”', diagnostics: 'DCA diagnostics', diagnosticsSub: 'Checks whether new contributions were paused during overheated periods.', maxScore: 'Max score', aboveDays: '+ days', belowDays: 'below days', deferredCount: 'Deferred contributions', deferredContributionAmount: 'Deferred amount', noTradeReason: 'No-defer reason', reasonNeverReached: 'The score never reached the overheat threshold.', reasonAfterFinal: 'An overheat signal appeared after the final contribution, so it did not reach the next defer step.', topScoreDates: 'Top score dates', noScoreData: 'No score diagnostic data.', assetChart: 'Asset curve', priceChart: 'Price chart', strategyLine: 'DCA + Uridoki-kun', holdLine: 'Regular DCA hold', closeLine: 'Close',
     },
   },
 } as const
