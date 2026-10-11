@@ -670,8 +670,8 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
         scores_total: res.data.scores?.total ?? null,
         response: res.data,
       })
-      if (isStaleByReqSeq) return
-      if (isStaleByRequestId) return
+      if (isStaleByReqSeq) return false
+      if (isStaleByRequestId) return false
       // Prefer the evaluated data snapshot for charting. Do not independently
       // fetch the same market history unless the API omitted usable chart data.
       const evaluatedSeries = Array.isArray(res.data.price_series)
@@ -704,11 +704,11 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
 
       if (status === 'degraded') {
         setResponses((prev) => ({ ...prev, [targetIndex]: normalized }))
-        if (!markPrimary) return
+        if (!markPrimary) return evaluatedSeries.length > 0
         if (retryCount >= EVAL_RETRY_DELAYS_MS.length) {
           setIsEvalRetrying(false)
           setEvalStatusMap((prev) => ({ ...prev, [targetIndex]: 'degraded' }))
-          return
+          return evaluatedSeries.length > 0
         }
         setIsEvalRetrying(true)
         console.warn('[EVAL DEGRADED]', {
@@ -719,7 +719,7 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
           scores: normalized.scores,
         })
         scheduleEvalRetry(targetIndex, payload, markPrimary, retryCount)
-        return
+        return evaluatedSeries.length > 0
       }
 
       if (status === 'error') {
@@ -727,7 +727,7 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
           setIsEvalRetrying(false)
           setError('評価データの取得に失敗しました。再取得してください。')
         }
-        return
+        return evaluatedSeries.length > 0
       }
 
       setResponses((prev) => ({ ...prev, [targetIndex]: normalized }))
@@ -745,6 +745,7 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
         setEvalStatusMap((prev) => ({ ...prev, [targetIndex]: 'ready' }))
         setEvalReasonsMap((prev) => ({ ...prev, [targetIndex]: reasons }))
       }
+      return evaluatedSeries.length > 0
     } catch (e: any) {
       if (reqSeq !== evalReqSeqRef.current) return
       const status = e?.response?.status
@@ -830,9 +831,14 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
 
     // The evaluate response normally includes the same chart series.
     // Avoid launching a redundant price-history request on initial load.
-    await fetchEvaluation(primary, undefined, true)
+    const primaryHasSeries = await fetchEvaluation(primary, undefined, true)
+    if (!primaryHasSeries) await fetchPriceSeries(primary)
+
     await Promise.all(
-      secondaryTargets.map((target) => fetchEvaluation(target)),
+      secondaryTargets.map(async (target) => {
+        const hasSeries = await fetchEvaluation(target)
+        if (!hasSeries) await fetchPriceSeries(target)
+      }),
     )
     await fetchNavs()
   }
