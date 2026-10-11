@@ -655,6 +655,8 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
       })
       if (isStaleByReqSeq) return
       if (isStaleByRequestId) return
+      // Keep the same render-snapshot fallback as main, including on initial load.
+      // This avoids changing investment scores as a side effect of faster requests.
       const latestSeries = priceSeriesMap[targetIndex] ?? []
       const normalized = normalizeEvaluateResponse(res.data, latestSeries)
       const status = resolveUiStatus(normalized)
@@ -759,7 +761,7 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
     const reqSeq = ++priceReqSeqRef.current
     try {
       const res = await apiClient.get<PricePoint[]>(getPriceHistoryEndpoint(targetIndex))
-      if (reqSeq !== priceReqSeqRef.current) return
+      if (reqSeq !== priceReqSeqRef.current) return null
       const sorted = [...res.data]
         .filter((p) => typeof p?.date === 'string' && typeof p?.close === 'number' && Number.isFinite(p?.close))
         .sort((a, b) => a.date.localeCompare(b.date))
@@ -776,8 +778,10 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
           return row
         })
       setPriceSeriesMap((prev) => ({ ...prev, [targetIndex]: sorted }))
+      return sorted
     } catch (e: any) {
       console.error('価格履歴取得に失敗しました', e)
+      return null
     }
   }
 
@@ -813,8 +817,11 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
     const primary = indexType
     const secondaryTargets = targets.filter((target) => target !== primary)
 
-    await fetchPriceSeries(primary)
-    await fetchEvaluation(primary, undefined, true)
+    // Start both requests together. Keep main's score normalization semantics.
+    await Promise.all([
+      fetchPriceSeries(primary),
+      fetchEvaluation(primary, undefined, true),
+    ])
 
     await Promise.all(
       secondaryTargets.flatMap((target) => [fetchEvaluation(target), fetchPriceSeries(target)]),

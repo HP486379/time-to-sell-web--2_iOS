@@ -22,7 +22,6 @@ import {
   buildEntitlementFlags,
   configureRevenueCat,
   getCustomerInfoSafe,
-  getDefaultOfferingSafe,
   isIndexUnlocked,
   purchaseIndex,
   restorePurchasesSafe,
@@ -80,7 +79,6 @@ export function DashboardScreen() {
   const [entitlementFlags, setEntitlementFlags] = useState<Record<string, boolean>>(
     buildEntitlementFlags(null),
   )
-  const [purchaseChecked, setPurchaseChecked] = useState<boolean>(false)
 
   const logIapError = useCallback((step: string, message: string, error: unknown) => {
     if (__DEV__) console.error(`[IAP] ${step} ${message} error=${formatErrorMessage(error)}`, error)
@@ -129,6 +127,9 @@ export function DashboardScreen() {
         Object.keys(flags).forEach(function (key) {
           window.localStorage.setItem('timetosell_entitlement_' + key, String(!!flags[key]));
         });
+        if (typeof window.updateEntitlements === 'function') {
+          window.updateEntitlements(flags);
+        }
       })();
       true;
     `)
@@ -151,7 +152,7 @@ export function DashboardScreen() {
     setWebViewKey((prev) => prev + 1)
   }, [])
 
-  const syncRevenueCatState = useCallback(async (options?: { reloadWebView?: boolean }) => {
+  const syncRevenueCatState = useCallback(async () => {
     if (!revenueCatReadyRef.current) {
       return
     }
@@ -160,7 +161,6 @@ export function DashboardScreen() {
     const syncStartedAt = Date.now()
 
     try {
-      await getDefaultOfferingSafe()
       const info = await getCustomerInfoSafe()
 
       if (syncRequestId !== syncRequestIdRef.current) {
@@ -173,17 +173,12 @@ export function DashboardScreen() {
 
       applyCustomerInfoToState(info)
       latestStateAppliedAtRef.current = Date.now()
-      if (options?.reloadWebView) {
-        forceReloadWebView()
-      }
     } catch (error) {
       logIapError('step-5', 'syncRevenueCatState failed', error)
       if (WEBVIEW_DEBUG) console.error('[dashboard-webview] syncRevenueCatState failed', error)
       applyCustomerInfoToState(null)
-    } finally {
-      setPurchaseChecked(true)
     }
-  }, [applyCustomerInfoToState, forceReloadWebView, logIapError])
+  }, [applyCustomerInfoToState, logIapError])
 
   useEffect(() => {
     let isMounted = true
@@ -192,16 +187,11 @@ export function DashboardScreen() {
       try {
         await configureRevenueCat()
 
-        await new Promise((resolve) => setTimeout(resolve, 500))
-
         if (!isMounted) return
         revenueCatReadyRef.current = true
         await syncRevenueCatState()
       } catch (error) {
         logIapError('step-0', 'initialization failed', error)
-        if (isMounted) {
-          setPurchaseChecked(true)
-        }
       }
     }
 
@@ -216,7 +206,7 @@ export function DashboardScreen() {
   useEffect(() => {
     const sub = AppState.addEventListener('change', (state) => {
       if (state === 'active' && revenueCatReadyRef.current) {
-        void syncRevenueCatState({ reloadWebView: true })
+        void syncRevenueCatState()
       }
     })
     return () => sub.remove()
@@ -383,17 +373,6 @@ export function DashboardScreen() {
     return false
   }, [])
 
-  if (!purchaseChecked) {
-    return (
-      <SafeAreaView style={styles.container} edges={['top']}>
-        <View style={[styles.loadingOverlay, { position: 'relative' }]}>
-          <ActivityIndicator size="large" color="#4F46E5" />
-          <Text style={styles.loadingText}>課金状態を確認中...</Text>
-        </View>
-      </SafeAreaView>
-    )
-  }
-
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <WebView
@@ -415,6 +394,9 @@ export function DashboardScreen() {
         }}
         onLoadEnd={({ nativeEvent }) => {
           debugLog('load-end', nativeEvent.url)
+          // A prior injection may have happened before WebView finished loading.
+          // Re-send the current entitlement flags without reloading the page.
+          injectEntitlementsToCurrentPage(buildEntitlementFlags(customerInfo))
           setIsLoading(false)
         }}
         onHttpError={({ nativeEvent }) => {
