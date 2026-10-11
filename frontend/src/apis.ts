@@ -1,43 +1,4 @@
-import type { AccumulationBacktestRequest, BacktestRequest, BacktestResult } from './types/apis'
 import { apiFetch, buildUrl } from './apiClient'
-
-/**
- * バックテスト実行 API
- * POST /api/backtest
- */
-export async function runBacktest(payload: BacktestRequest): Promise<BacktestResult> {
-  const res = await apiFetch(buildUrl('/api/backtest'), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  })
-
-  if (!res.ok) {
-    const text = await res.text()
-    throw new Error(`Backtest failed: ${res.status} ${text}`)
-  }
-
-  return res.json()
-}
-
-/**
- * 積立バックテスト実行 API
- * POST /api/backtest/accumulation
- */
-export async function runAccumulationBacktest(payload: AccumulationBacktestRequest): Promise<BacktestResult> {
-  const res = await apiFetch(buildUrl('/api/backtest/accumulation'), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  })
-
-  if (!res.ok) {
-    const text = await res.text()
-    throw new Error(`Accumulation backtest failed: ${res.status} ${text}`)
-  }
-
-  return res.json()
-}
 
 /**
  * イベント1件分の型
