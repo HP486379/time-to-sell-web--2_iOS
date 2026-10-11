@@ -352,6 +352,7 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
   const evalReqSeqRef = useRef<Partial<Record<IndexType, number>>>({})
   const evalRetryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const latestEvalRequestIdRef = useRef<Partial<Record<IndexType, string>>>({})
+  const fetchBatchRef = useRef(0)
 
   // ★ 追加：イベント用 state
   const [events, setEvents] = useState<EventItem[]>([])
@@ -755,7 +756,7 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
         setEvalStatusMap((prev) => ({ ...prev, [targetIndex]: 'ready' }))
         setEvalReasonsMap((prev) => ({ ...prev, [targetIndex]: reasons }))
       }
-      return evaluatedSeries.length > 0
+      return hasValidSeries
     } catch (e: any) {
       if (reqSeq !== evalReqSeqRef.current[targetIndex]) return null
       const status = e?.response?.status
@@ -832,7 +833,8 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
     setViewDays(value as ScoreMaDays)
   }
 
-  const fetchAll = async () => {
+  const fetchAll = async (batch: number) => {
+    if (batch !== fetchBatchRef.current) return
     const targets: IndexType[] = (() => {
       if (indexType === 'ORUKAN' || indexType === 'orukan_jpy') return ['ORUKAN', 'orukan_jpy']
       if (indexType === 'sp500_jpy') return ['SP500', 'sp500_jpy']
@@ -845,23 +847,32 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
     // The evaluate response normally includes the same chart series.
     // Avoid launching a redundant price-history request on initial load.
     const primaryHasSeries = await fetchEvaluation(primary, undefined, true)
+    if (batch !== fetchBatchRef.current) return
     if (primaryHasSeries === false || primaryHasSeries === undefined) await fetchPriceSeries(primary)
+    if (batch !== fetchBatchRef.current) return
 
     await Promise.all(
       secondaryTargets.map(async (target) => {
+        if (batch !== fetchBatchRef.current) return
         const hasSeries = await fetchEvaluation(target)
+        if (batch !== fetchBatchRef.current) return
         if (hasSeries === false || hasSeries === undefined) await fetchPriceSeries(target)
       }),
     )
+    if (batch !== fetchBatchRef.current) return
     await fetchNavs()
   }
 
   useEffect(() => {
-    void fetchAll()
+    const batch = ++fetchBatchRef.current
+    void fetchAll(batch)
     const id = setInterval(() => {
-      void fetchAll()
+      void fetchAll(++fetchBatchRef.current)
     }, REFRESH_INTERVAL_MS)
-    return () => clearInterval(id)
+    return () => {
+      ++fetchBatchRef.current
+      clearInterval(id)
+    }
   }, [lastRequest, indexType])
 
   useEffect(() => {
