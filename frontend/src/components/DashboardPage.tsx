@@ -1185,6 +1185,7 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
                 <Grid item xs={12} sx={{ height: '100%' }}>
                   <Stack spacing={2} sx={{ height: '100%' }}>
                     <SimpleAlertCard
+                      avatarDecision={avatarDecision}
                       scores={displayResponse?.scores}
                       zoneText={zoneText}
                       onShowDetails={() => setShowDetails((prev) => !prev)}
