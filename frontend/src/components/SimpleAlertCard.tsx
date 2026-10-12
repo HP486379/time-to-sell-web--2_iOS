@@ -23,6 +23,7 @@ import type { Decision } from '../domain/decision'
 import UridokiKunAvatar from './UridokiKunAvatar'
 
 interface Props {
+  avatarDecision: Decision
   scores?: {
     total: number
   }
@@ -68,6 +69,7 @@ const getLocalizedAlert = (score: number | undefined, decision: Decision, t: Ret
 }
 
 function SimpleAlertCard({
+  avatarDecision,
   scores,
   highlights = [],
   zoneText,
@@ -181,7 +183,7 @@ function SimpleAlertCard({
             {/* Keep the existing score-to-avatar mapping; only reduce its footprint in simple mode. */}
             <Box sx={{ flexShrink: 0, width: 76, display: 'flex', justifyContent: 'center', ml: 'auto' }}>
               {showConfirmed ? (
-                <UridokiKunAvatar decision={alert.decision} size={76} animated />
+                <UridokiKunAvatar decision={avatarDecision} size={76} animated />
               ) : (
                 <Skeleton variant="rounded" width={76} height={76} />
               )}
