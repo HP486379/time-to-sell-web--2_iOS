@@ -1197,7 +1197,8 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
                       isRetrying={isEvalRetrying}
                     />
                     <Collapse in={showDetails} unmountOnExit>
-                      <ScoreSummaryCard
+                      <Stack spacing={2}>
+                        <ScoreSummaryCard
                         scores={displayResponse?.scores}
                         zoneText={zoneText}
                         onShowDetails={() => setShowDetails((prev) => !prev)}
@@ -1208,7 +1209,8 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
                         onRetry={handleRetry}
                         isRetrying={isEvalRetrying}
                       />
-                      {timeAxisCard}
+                        {timeAxisCard}
+                      </Stack>
                     </Collapse>
                   </Stack>
                 </Grid>
