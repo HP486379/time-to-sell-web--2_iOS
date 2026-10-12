@@ -1196,25 +1196,23 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
                       onRetry={handleRetry}
                       isRetrying={isEvalRetrying}
                     />
+                    <Collapse in={showDetails}>
+                      <ScoreSummaryCard
+                        scores={displayResponse?.scores}
+                        zoneText={zoneText}
+                        onShowDetails={() => setShowDetails((prev) => !prev)}
+                        expanded={showDetails}
+                        tooltips={tooltipTexts}
+                        status={evalStatus}
+                        statusMessage={statusMessage}
+                        onRetry={handleRetry}
+                        isRetrying={isEvalRetrying}
+                      />
+                    </Collapse>
                     {timeAxisCard}
                   </Stack>
                 </Grid>
 
-                <Grid item xs={12}>
-                  <Collapse in={showDetails}>
-                    <ScoreSummaryCard
-                      scores={displayResponse?.scores}
-                      zoneText={zoneText}
-                      onShowDetails={() => setShowDetails((prev) => !prev)}
-                      expanded={showDetails}
-                      tooltips={tooltipTexts}
-                      status={evalStatus}
-                      statusMessage={statusMessage}
-                      onRetry={handleRetry}
-                      isRetrying={isEvalRetrying}
-                    />
-                  </Collapse>
-                </Grid>
               </>
             ) : (
               <>
