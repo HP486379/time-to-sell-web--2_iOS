@@ -565,7 +565,7 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
       [indexType]: response ? 'refreshing' : 'loading',
     }))
     setIsEvalRetrying(false)
-    void fetchAll()
+    void fetchAll(++fetchBatchRef.current)
   }
 
   const EVAL_RETRY_DELAYS_MS = [1500, 3000, 6000]
@@ -1170,7 +1170,7 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
             </Typography>
           )}
           <Tooltip title="最新データを取得" arrow>
-            <IconButton color="primary" onClick={() => void fetchAll()}>
+            <IconButton color="primary" onClick={() => void fetchAll(++fetchBatchRef.current)}>
               <RefreshIcon />
             </IconButton>
           </Tooltip>
