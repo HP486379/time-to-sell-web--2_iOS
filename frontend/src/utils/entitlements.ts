@@ -17,7 +17,11 @@ function readNikkeiUnlockFromWindow(): boolean | null {
 
 function readNikkeiUnlockFromLocalStorage(): boolean {
   if (typeof window === 'undefined') return false
-  return window.localStorage.getItem(NIKKEI_UNLOCK_LOCAL_STORAGE_KEY) === 'true'
+  try {
+    return window.localStorage.getItem(NIKKEI_UNLOCK_LOCAL_STORAGE_KEY) === 'true'
+  } catch {
+    return false // Fail closed when entitlement storage cannot be verified.
+  }
 }
 
 export function isNikkeiUnlocked(): boolean {
