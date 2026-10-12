@@ -156,38 +156,41 @@ function SimpleAlertCard({
               {d.simpleAlert}
             </Typography>
           </Tooltip>
-          <Stack direction="row" alignItems="center" spacing={1.5} useFlexGap flexWrap="wrap">
-            {status === 'loading' ? (
-              <Skeleton variant="circular" width={40} height={40} />
-            ) : (
-              <AnimatedSignalLight decision={alert.decision} />
-            )}
-            <Stack spacing={0.75} flex={1} sx={{ minWidth: 125 }}>
+          <Stack spacing={1.5}>
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 1 }}>
               {status === 'loading' ? (
-                <>
-                  <Skeleton variant="text" width="60%" />
-                  <Skeleton variant="text" width="80%" />
-                </>
+                <Skeleton variant="circular" width={40} height={40} />
               ) : (
-                <>
-                  <Typography variant="h6" fontWeight={700} color={textPrimary}>
-                    {showConfirmed ? localizedAlert.title : d.uncertainTitle}
-                  </Typography>
-                  <Typography variant="body2" color={textSecondary}>
-                    {showConfirmed ? localizedAlert.reaction : d.uncertainReaction}
-                  </Typography>
-                </>
+                <AnimatedSignalLight decision={alert.decision} />
               )}
-            </Stack>
-            {status === 'refreshing' && <Chip size="small" color="info" label={d.refreshing} />}
-            {/* Keep the existing score-to-avatar mapping; only reduce its footprint in simple mode. */}
-            <Box sx={{ flexShrink: 0, width: 76, display: 'flex', justifyContent: 'center', ml: 'auto' }}>
-              {showConfirmed ? (
-                <UridokiKunAvatar decision={avatarDecision} size={76} animated />
-              ) : (
-                <Skeleton variant="rounded" width={76} height={76} />
-              )}
+              {status === 'refreshing' && <Chip size="small" color="info" label={d.refreshing} />}
             </Box>
+            <Stack direction="row" alignItems="center" spacing={1.5} sx={{ minWidth: 0 }}>
+              <Stack spacing={0.75} sx={{ flex: 1, minWidth: 0 }}>
+                {status === 'loading' ? (
+                  <>
+                    <Skeleton variant="text" width="60%" />
+                    <Skeleton variant="text" width="80%" />
+                  </>
+                ) : (
+                  <>
+                    <Typography variant="h6" fontWeight={700} color={textPrimary} sx={{ overflowWrap: 'anywhere' }}>
+                      {showConfirmed ? localizedAlert.title : d.uncertainTitle}
+                    </Typography>
+                    <Typography variant="body2" color={textSecondary} sx={{ overflowWrap: 'anywhere' }}>
+                      {showConfirmed ? localizedAlert.reaction : d.uncertainReaction}
+                    </Typography>
+                  </>
+                )}
+              </Stack>
+              <Box sx={{ flexShrink: 0, width: 76, display: 'flex', justifyContent: 'center' }}>
+                {showConfirmed ? (
+                  <UridokiKunAvatar decision={avatarDecision} size={76} animated />
+                ) : (
+                  <Skeleton variant="rounded" width={76} height={76} />
+                )}
+              </Box>
+            </Stack>
           </Stack>
           <Typography variant="body1" color={textPrimary}>
             {status === 'loading' ? d.loading : showConfirmed ? localizedAlert.message : d.uncertainScore}
