@@ -27,6 +27,7 @@ type Props = {
   isLoading?: boolean
   error?: string | null
   tooltips?: EventTooltips
+  compact?: boolean
 }
 
 const eventText = {
@@ -84,7 +85,7 @@ const eventText = {
   },
 } as const
 
-const EventList: React.FC<Props> = ({ eventDetails, events, isLoading, error, tooltips }) => {
+const EventList: React.FC<Props> = ({ eventDetails, events, isLoading, error, tooltips, compact = false }) => {
   const language = useAppLanguage()
   const text = eventText[language]
   const title = tooltips?.events?.title ?? text.title
@@ -253,7 +254,7 @@ const EventList: React.FC<Props> = ({ eventDetails, events, isLoading, error, to
         {!isLoading && error && <Alert severity="warning" sx={{ mt: 1 }}>{text.loadError(error)}</Alert>}
         {!isLoading && !error && mergedEvents.length === 0 && <Typography variant="body2" color="text.secondary" mt={1}>{text.empty}</Typography>}
 
-        {!isLoading && !error && mergedEvents.length > 0 && (
+        {!compact && !isLoading && !error && mergedEvents.length > 0 && (
           <>
             {upcomingEvents.length > 0 && (
               <>

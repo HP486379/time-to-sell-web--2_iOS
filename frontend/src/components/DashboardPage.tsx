@@ -1196,8 +1196,9 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
                       onRetry={handleRetry}
                       isRetrying={isEvalRetrying}
                     />
-                    <Collapse in={showDetails}>
-                      <ScoreSummaryCard
+                    <Collapse in={showDetails} unmountOnExit>
+                      <Stack spacing={2}>
+                        <ScoreSummaryCard
                         scores={displayResponse?.scores}
                         zoneText={zoneText}
                         onShowDetails={() => setShowDetails((prev) => !prev)}
@@ -1208,8 +1209,9 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
                         onRetry={handleRetry}
                         isRetrying={isEvalRetrying}
                       />
+                        {timeAxisCard}
+                      </Stack>
                     </Collapse>
-                    {timeAxisCard}
                   </Stack>
                 </Grid>
 
@@ -1321,7 +1323,7 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
         </Card>
       )}
 
-      {forexInsight && (
+      {forexInsight && (displayMode === 'pro' || showDetails) && (
         <Card>
           <CardContent>
             <Typography variant="subtitle1" gutterBottom>
@@ -1338,12 +1340,15 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
       )}
 
       <Grid container spacing={3}>
-        <Grid item xs={12} md={7}>
-          <MacroCards macroDetails={displayResponse?.macro_details} tooltips={tooltipTexts} />
-        </Grid>
+        {(displayMode === 'pro' || showDetails) && (
+          <Grid item xs={12} md={7}>
+            <MacroCards macroDetails={displayResponse?.macro_details} tooltips={tooltipTexts} />
+          </Grid>
+        )}
         <Grid item xs={12} md={5}>
           {/* ★ イベント一覧：旧 event_details に加えて /api/events の結果も渡す */}
           <EventList
+            compact={displayMode === 'simple' && !showDetails}
             eventDetails={displayResponse?.event_details}
             events={events}
             isLoading={isEventsLoading}
