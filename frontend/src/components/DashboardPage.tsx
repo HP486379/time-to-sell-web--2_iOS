@@ -347,10 +347,12 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
   const [evalStatusMap, setEvalStatusMap] = useState<Partial<Record<IndexType, EvalStatus>>>({})
   const [evalReasonsMap, setEvalReasonsMap] = useState<Partial<Record<IndexType, string[]>>>({})
   const [evalStatusMessageMap, setEvalStatusMessageMap] = useState<Partial<Record<IndexType, string>>>({})
-  const priceReqSeqRef = useRef(0)
-  const evalReqSeqRef = useRef(0)
+  const priceReqSeqRef = useRef<Partial<Record<IndexType, number>>>({})
+  const chartEpochRef = useRef<Partial<Record<IndexType, number>>>({})
+  const evalReqSeqRef = useRef<Partial<Record<IndexType, number>>>({})
   const evalRetryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const latestEvalRequestIdRef = useRef<Partial<Record<IndexType, string>>>({})
+  const fetchBatchRef = useRef(0)
 
   // ★ 追加：イベント用 state
   const [events, setEvents] = useState<EventItem[]>([])
@@ -563,7 +565,7 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
       [indexType]: response ? 'refreshing' : 'loading',
     }))
     setIsEvalRetrying(false)
-    void fetchAll()
+    void fetchAll(++fetchBatchRef.current)
   }
 
   const EVAL_RETRY_DELAYS_MS = [1500, 3000, 6000]
@@ -613,13 +615,39 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
     }, EVAL_RETRY_DELAYS_MS[retryCount])
   }
 
+  const isValidPriceDate = (value: unknown): value is string => {
+    if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false
+    const parsed = new Date(value + 'T00:00:00Z')
+    return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value
+  }
+
+  const normalizePriceRows = (rows: PricePoint[], targetIndex: IndexType): PricePoint[] =>
+    [...rows]
+      .filter((p) => isValidPriceDate(p?.date) && typeof p?.close === 'number' && Number.isFinite(p.close))
+      .sort((a, b) => a.date.localeCompare(b.date))
+      .map((p, idx, validRows) => {
+        const row = {
+          ...p,
+          ma20: typeof p.ma20 === 'number' && Number.isFinite(p.ma20) ? p.ma20 : null,
+          ma60: typeof p.ma60 === 'number' && Number.isFinite(p.ma60) ? p.ma60 : null,
+          ma200: typeof p.ma200 === 'number' && Number.isFinite(p.ma200) ? p.ma200 : null,
+        }
+        if (idx === 0 || idx === validRows.length - 1) {
+          console.debug('[PRICE ROW]', { index: targetIndex, row })
+        }
+        return row
+      })
+
   const fetchEvaluation = async (
     targetIndex: IndexType,
     payload?: Partial<EvaluateRequest>,
     markPrimary = false,
     retryCount = 0,
   ) => {
-    const reqSeq = ++evalReqSeqRef.current
+    const reqSeq = (evalReqSeqRef.current[targetIndex] ?? 0) + 1
+    evalReqSeqRef.current[targetIndex] = reqSeq
+    const chartEpoch = (chartEpochRef.current[targetIndex] ?? 0) + 1
+    chartEpochRef.current[targetIndex] = chartEpoch
     const clientRequestId = genRequestId()
     latestEvalRequestIdRef.current[targetIndex] = clientRequestId
     try {
@@ -637,7 +665,7 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
       const res = await apiClient.post<EvaluateResponse>(buildUrl('/api/evaluate'), body)
       const responseRequestId = res.data.request_id
       const latestRequestId = latestEvalRequestIdRef.current[targetIndex]
-      const isStaleByReqSeq = reqSeq !== evalReqSeqRef.current
+      const isStaleByReqSeq = reqSeq !== evalReqSeqRef.current[targetIndex]
       const hasComparableRequestId =
         typeof responseRequestId === 'string' && typeof latestRequestId === 'string'
       const isStaleByRequestId = hasComparableRequestId && responseRequestId !== latestRequestId
@@ -645,7 +673,7 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
         step: 'after-evaluate-response',
         indexType: targetIndex,
         reqSeq,
-        evalReqSeqCurrent: evalReqSeqRef.current,
+        evalReqSeqCurrent: evalReqSeqRef.current[targetIndex],
         request_id: responseRequestId ?? null,
         latest_request_id: latestRequestId ?? null,
         stale_by_req_seq: isStaleByReqSeq,
@@ -653,12 +681,20 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
         scores_total: res.data.scores?.total ?? null,
         response: res.data,
       })
-      if (isStaleByReqSeq) return
-      if (isStaleByRequestId) return
-      // Keep the same render-snapshot fallback as main, including on initial load.
-      // This avoids changing investment scores as a side effect of faster requests.
+      if (isStaleByReqSeq) return null
+      if (isStaleByRequestId) return null
+      // Prefer the evaluated data snapshot for charting. Do not independently
+      // fetch the same market history unless the API omitted usable chart data.
+      const rawSeries = res.data.price_series
+      const evaluatedSeries = Array.isArray(rawSeries) ? normalizePriceRows(rawSeries, targetIndex) : []
+      const hasValidSeries = Array.isArray(rawSeries) &&
+        rawSeries.length > 0 && evaluatedSeries.length === rawSeries.length
+      // The score fallback must have exactly the same input as main.
       const latestSeries = priceSeriesMap[targetIndex] ?? []
       const normalized = normalizeEvaluateResponse(res.data, latestSeries)
+      if (hasValidSeries && chartEpochRef.current[targetIndex] === chartEpoch) {
+        setPriceSeriesMap((prev) => ({ ...prev, [targetIndex]: evaluatedSeries }))
+      }
       const status = resolveUiStatus(normalized)
       const reasons = normalized.reasons ?? []
       let uiMessage: string | undefined
@@ -679,11 +715,11 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
 
       if (status === 'degraded') {
         setResponses((prev) => ({ ...prev, [targetIndex]: normalized }))
-        if (!markPrimary) return
+        if (!markPrimary) return hasValidSeries
         if (retryCount >= EVAL_RETRY_DELAYS_MS.length) {
           setIsEvalRetrying(false)
           setEvalStatusMap((prev) => ({ ...prev, [targetIndex]: 'degraded' }))
-          return
+          return hasValidSeries
         }
         setIsEvalRetrying(true)
         console.warn('[EVAL DEGRADED]', {
@@ -694,7 +730,7 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
           scores: normalized.scores,
         })
         scheduleEvalRetry(targetIndex, payload, markPrimary, retryCount)
-        return
+        return evaluatedSeries.length > 0
       }
 
       if (status === 'error') {
@@ -702,7 +738,7 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
           setIsEvalRetrying(false)
           setError('評価データの取得に失敗しました。再取得してください。')
         }
-        return
+        return evaluatedSeries.length > 0
       }
 
       setResponses((prev) => ({ ...prev, [targetIndex]: normalized }))
@@ -720,8 +756,9 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
         setEvalStatusMap((prev) => ({ ...prev, [targetIndex]: 'ready' }))
         setEvalReasonsMap((prev) => ({ ...prev, [targetIndex]: reasons }))
       }
+      return hasValidSeries
     } catch (e: any) {
-      if (reqSeq !== evalReqSeqRef.current) return
+      if (reqSeq !== evalReqSeqRef.current[targetIndex]) return null
       const status = e?.response?.status
       if (markPrimary) {
         setIsEvalRetrying(false)
@@ -758,25 +795,14 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
   }
 
   const fetchPriceSeries = async (targetIndex: IndexType) => {
-    const reqSeq = ++priceReqSeqRef.current
+    const reqSeq = (priceReqSeqRef.current[targetIndex] ?? 0) + 1
+    priceReqSeqRef.current[targetIndex] = reqSeq
+    const chartEpoch = chartEpochRef.current[targetIndex]
     try {
       const res = await apiClient.get<PricePoint[]>(getPriceHistoryEndpoint(targetIndex))
-      if (reqSeq !== priceReqSeqRef.current) return null
-      const sorted = [...res.data]
-        .filter((p) => typeof p?.date === 'string' && typeof p?.close === 'number' && Number.isFinite(p?.close))
-        .sort((a, b) => a.date.localeCompare(b.date))
-        .map((p, idx) => {
-          const row = {
-            ...p,
-            ma20: typeof p.ma20 === 'number' && Number.isFinite(p.ma20) ? p.ma20 : null,
-            ma60: typeof p.ma60 === 'number' && Number.isFinite(p.ma60) ? p.ma60 : null,
-            ma200: typeof p.ma200 === 'number' && Number.isFinite(p.ma200) ? p.ma200 : null,
-          }
-          if (idx === 0 || idx === res.data.length - 1) {
-            console.debug('[PRICE ROW]', { index: targetIndex, row })
-          }
-          return row
-        })
+      if (reqSeq !== priceReqSeqRef.current[targetIndex] ||
+          chartEpoch !== chartEpochRef.current[targetIndex]) return null
+      const sorted = normalizePriceRows(res.data, targetIndex)
       setPriceSeriesMap((prev) => ({ ...prev, [targetIndex]: sorted }))
       return sorted
     } catch (e: any) {
@@ -807,7 +833,8 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
     setViewDays(value as ScoreMaDays)
   }
 
-  const fetchAll = async () => {
+  const fetchAll = async (batch: number) => {
+    if (batch !== fetchBatchRef.current) return
     const targets: IndexType[] = (() => {
       if (indexType === 'ORUKAN' || indexType === 'orukan_jpy') return ['ORUKAN', 'orukan_jpy']
       if (indexType === 'sp500_jpy') return ['SP500', 'sp500_jpy']
@@ -817,24 +844,35 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
     const primary = indexType
     const secondaryTargets = targets.filter((target) => target !== primary)
 
-    // Start both requests together. Keep main's score normalization semantics.
-    await Promise.all([
-      fetchPriceSeries(primary),
-      fetchEvaluation(primary, undefined, true),
-    ])
+    // The evaluate response normally includes the same chart series.
+    // Avoid launching a redundant price-history request on initial load.
+    const primaryHasSeries = await fetchEvaluation(primary, undefined, true)
+    if (batch !== fetchBatchRef.current) return
+    if (primaryHasSeries === false || primaryHasSeries === undefined) await fetchPriceSeries(primary)
+    if (batch !== fetchBatchRef.current) return
 
     await Promise.all(
-      secondaryTargets.flatMap((target) => [fetchEvaluation(target), fetchPriceSeries(target)]),
+      secondaryTargets.map(async (target) => {
+        if (batch !== fetchBatchRef.current) return
+        const hasSeries = await fetchEvaluation(target)
+        if (batch !== fetchBatchRef.current) return
+        if (hasSeries === false || hasSeries === undefined) await fetchPriceSeries(target)
+      }),
     )
+    if (batch !== fetchBatchRef.current) return
     await fetchNavs()
   }
 
   useEffect(() => {
-    void fetchAll()
+    const batch = ++fetchBatchRef.current
+    void fetchAll(batch)
     const id = setInterval(() => {
-      void fetchAll()
+      void fetchAll(++fetchBatchRef.current)
     }, REFRESH_INTERVAL_MS)
-    return () => clearInterval(id)
+    return () => {
+      ++fetchBatchRef.current
+      clearInterval(id)
+    }
   }, [lastRequest, indexType])
 
   useEffect(() => {
@@ -1132,7 +1170,7 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
             </Typography>
           )}
           <Tooltip title="最新データを取得" arrow>
-            <IconButton color="primary" onClick={() => void fetchAll()}>
+            <IconButton color="primary" onClick={() => void fetchAll(++fetchBatchRef.current)}>
               <RefreshIcon />
             </IconButton>
           </Tooltip>
