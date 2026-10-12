@@ -157,7 +157,7 @@ function SimpleAlertCard({
             </Typography>
           </Tooltip>
           <Stack spacing={1.5}>
-            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 1 }}>
               {status === 'loading' ? (
                 <Skeleton variant="circular" width={40} height={40} />
               ) : (
