@@ -1182,9 +1182,10 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
           <Grid container spacing={3} alignItems="stretch">
             {displayMode === 'simple' ? (
               <>
-                <Grid item xs={12} md={7} sx={{ height: '100%' }}>
+                <Grid item xs={12} sx={{ height: '100%' }}>
                   <Stack spacing={2} sx={{ height: '100%' }}>
                     <SimpleAlertCard
+                      avatarDecision={avatarDecision}
                       scores={displayResponse?.scores}
                       zoneText={zoneText}
                       onShowDetails={() => setShowDetails((prev) => !prev)}
@@ -1197,10 +1198,6 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
                     />
                     {timeAxisCard}
                   </Stack>
-                </Grid>
-
-                <Grid item xs={12} md={5} sx={{ height: '100%' }}>
-                  <SellTimingAvatarCard decision={avatarDecision} />
                 </Grid>
 
                 <Grid item xs={12}>

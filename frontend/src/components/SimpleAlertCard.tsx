@@ -20,8 +20,10 @@ import { getAlertState } from '../utils/alertState'
 import { AnimatedSignalLight } from './AnimatedSignalLight'
 import { getTranslations, useAppLanguage } from '../i18n'
 import type { Decision } from '../domain/decision'
+import UridokiKunAvatar from './UridokiKunAvatar'
 
 interface Props {
+  avatarDecision: Decision
   scores?: {
     total: number
   }
@@ -67,6 +69,7 @@ const getLocalizedAlert = (score: number | undefined, decision: Decision, t: Ret
 }
 
 function SimpleAlertCard({
+  avatarDecision,
   scores,
   highlights = [],
   zoneText,
@@ -153,13 +156,13 @@ function SimpleAlertCard({
               {d.simpleAlert}
             </Typography>
           </Tooltip>
-          <Stack direction="row" alignItems="center" spacing={2.25}>
+          <Stack direction="row" alignItems="center" spacing={1.5} useFlexGap flexWrap="wrap">
             {status === 'loading' ? (
               <Skeleton variant="circular" width={40} height={40} />
             ) : (
               <AnimatedSignalLight decision={alert.decision} />
             )}
-            <Stack spacing={0.75} flex={1}>
+            <Stack spacing={0.75} flex={1} sx={{ minWidth: 125 }}>
               {status === 'loading' ? (
                 <>
                   <Skeleton variant="text" width="60%" />
@@ -177,6 +180,14 @@ function SimpleAlertCard({
               )}
             </Stack>
             {status === 'refreshing' && <Chip size="small" color="info" label={d.refreshing} />}
+            {/* Keep the existing score-to-avatar mapping; only reduce its footprint in simple mode. */}
+            <Box sx={{ flexShrink: 0, width: 76, display: 'flex', justifyContent: 'center', ml: 'auto' }}>
+              {showConfirmed ? (
+                <UridokiKunAvatar decision={avatarDecision} size={76} animated />
+              ) : (
+                <Skeleton variant="rounded" width={76} height={76} />
+              )}
+            </Box>
           </Stack>
           <Typography variant="body1" color={textPrimary}>
             {status === 'loading' ? d.loading : showConfirmed ? localizedAlert.message : d.uncertainScore}
