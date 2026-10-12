@@ -20,6 +20,7 @@ import { getAlertState } from '../utils/alertState'
 import { AnimatedSignalLight } from './AnimatedSignalLight'
 import { getTranslations, useAppLanguage } from '../i18n'
 import type { Decision } from '../domain/decision'
+import UridokiKunAvatar from './UridokiKunAvatar'
 
 interface Props {
   scores?: {
@@ -177,6 +178,10 @@ function SimpleAlertCard({
               )}
             </Stack>
             {status === 'refreshing' && <Chip size="small" color="info" label={d.refreshing} />}
+            {/* Keep the existing score-to-avatar mapping; only reduce its footprint in simple mode. */}
+            <Box sx={{ flexShrink: 0, width: { xs: 76, sm: 96 }, display: 'flex', justifyContent: 'center' }}>
+              <UridokiKunAvatar decision={alert.decision} size={76} animated />
+            </Box>
           </Stack>
           <Typography variant="body1" color={textPrimary}>
             {status === 'loading' ? d.loading : showConfirmed ? localizedAlert.message : d.uncertainScore}
