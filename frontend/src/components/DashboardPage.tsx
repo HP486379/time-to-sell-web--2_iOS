@@ -1344,7 +1344,7 @@ function DashboardPage({ displayMode }: { displayMode: DisplayMode }) {
           <Grid item xs={12} md={7}>
             <MacroCards macroDetails={displayResponse?.macro_details} tooltips={tooltipTexts} />
           </Grid>
-        )>
+        )}
         <Grid item xs={12} md={5}>
           {/* ★ イベント一覧：旧 event_details に加えて /api/events の結果も渡す */}
           <EventList
