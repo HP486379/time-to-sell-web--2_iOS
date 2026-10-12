@@ -28,10 +28,15 @@ function createRandomUserId(): string {
 
 export function getOrCreateUserId(): string {
   if (typeof window === 'undefined') return 'server-side-user'
+  // The first resolved ID remains stable even if storage becomes unavailable later.
+  if (fallbackUserId) return fallbackUserId
 
   try {
     const existing = window.localStorage.getItem(USER_ID_STORAGE_KEY)
-    if (existing && existing.length > 0) return existing
+    if (existing && existing.length > 0) {
+      fallbackUserId = existing
+      return existing
+    }
     const generated = fallbackUserId ?? createRandomUserId()
     window.localStorage.setItem(USER_ID_STORAGE_KEY, generated)
     fallbackUserId = generated
