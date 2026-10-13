@@ -85,6 +85,7 @@ export function DashboardScreen() {
   }, [])
 
   const uri = useMemo(() => WEB_DASHBOARD_URL, [])
+  const webViewSource = useMemo(() => ({ uri }), [uri])
 
   const injectedBeforeContentLoad = useMemo(() => {
     const payload = JSON.stringify(entitlementFlags)
@@ -144,7 +145,10 @@ export function DashboardScreen() {
 
   useEffect(() => {
     const nextFlags = buildEntitlementFlags(customerInfo)
-    setEntitlementFlags(nextFlags)
+    setEntitlementFlags((prev) => {
+      const keys = new Set([...Object.keys(prev), ...Object.keys(nextFlags)])
+      return [...keys].every((key) => prev[key] === nextFlags[key]) ? prev : nextFlags
+    })
     injectEntitlementsToCurrentPage(nextFlags)
   }, [customerInfo, injectEntitlementsToCurrentPage])
 
@@ -378,7 +382,7 @@ export function DashboardScreen() {
       <WebView
         ref={webRef}
         key={webViewKey}
-        source={{ uri }}
+        source={webViewSource}
         style={styles.webview}
         originWhitelist={['*']}
         onShouldStartLoadWithRequest={onShouldStartLoadWithRequest}
