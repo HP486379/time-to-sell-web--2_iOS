@@ -157,8 +157,12 @@ const translateRemainingDom = (language: AppLanguage) => {
 function App({ mode, onToggleMode }: AppProps) {
   const [displayMode, setDisplayMode] = useState<'pro' | 'simple'>(() => {
     if (typeof window === 'undefined') return 'simple'
-    const stored = window.localStorage.getItem('displayMode')
-    return stored === 'pro' || stored === 'simple' ? stored : 'simple'
+    try {
+      const stored = window.localStorage.getItem('displayMode')
+      return stored === 'pro' || stored === 'simple' ? stored : 'simple'
+    } catch {
+      return 'simple'
+    }
   })
   const [language, setLanguage] = useState<AppLanguage>(() => getInitialLanguage())
   const t = getTranslations(language)
@@ -166,7 +170,9 @@ function App({ mode, onToggleMode }: AppProps) {
   const handleDisplayMode = (_: any, next: 'pro' | 'simple') => { if (next) setDisplayMode(next) }
   const handleLanguage = (_: any, next: AppLanguage | null) => { if (next) setLanguage(next) }
 
-  useEffect(() => { if (typeof window !== 'undefined') window.localStorage.setItem('displayMode', displayMode) }, [displayMode])
+  useEffect(() => {
+    try { if (typeof window !== 'undefined') window.localStorage.setItem('displayMode', displayMode) } catch { /* Storage may be blocked. */ }
+  }, [displayMode])
   useEffect(() => { if (typeof window !== 'undefined') { emitLanguageChanged(language); document.documentElement.lang = language } }, [language])
   useEffect(() => {
     if (typeof window === 'undefined' || language !== 'en') return

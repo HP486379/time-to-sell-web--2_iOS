@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import ReactDOM from 'react-dom/client'
 import { CssBaseline, ThemeProvider, createTheme, PaletteMode } from '@mui/material'
 import { BrowserRouter } from 'react-router-dom'
@@ -31,8 +31,22 @@ const themeFactory = (mode: PaletteMode) =>
   })
 
 const Root = () => {
-  const [mode, setMode] = useState<PaletteMode>('dark')
+  const [mode, setMode] = useState<PaletteMode>(() => {
+    try {
+      const stored = window.localStorage.getItem('themeMode')
+      return stored === 'dark' || stored === 'light' ? stored : 'light'
+    } catch {
+      return 'light'
+    }
+  })
   const theme = useMemo(() => themeFactory(mode), [mode])
+  useEffect(() => {
+    try {
+      window.localStorage.setItem('themeMode', mode)
+    } catch {
+      // Storage may be unavailable in private browsing; the theme still works.
+    }
+  }, [mode])
 
   const handleToggleMode = () => setMode((prev) => (prev === 'dark' ? 'light' : 'dark'))
 

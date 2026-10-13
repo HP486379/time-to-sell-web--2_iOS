@@ -2,6 +2,7 @@ import axios from 'axios'
 
 const DEFAULT_API_BASE_URL = 'https://mai-rishi-kun.onrender.com'
 const USER_ID_STORAGE_KEY = 'timetosell_user_id'
+let fallbackUserId: string | null = null
 
 export const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL ||
@@ -27,13 +28,24 @@ function createRandomUserId(): string {
 
 export function getOrCreateUserId(): string {
   if (typeof window === 'undefined') return 'server-side-user'
+  // The first resolved ID remains stable even if storage becomes unavailable later.
+  if (fallbackUserId) return fallbackUserId
 
-  const existing = window.localStorage.getItem(USER_ID_STORAGE_KEY)
-  if (existing && existing.length > 0) return existing
-
-  const generated = createRandomUserId()
-  window.localStorage.setItem(USER_ID_STORAGE_KEY, generated)
-  return generated
+  try {
+    const existing = window.localStorage.getItem(USER_ID_STORAGE_KEY)
+    if (existing && existing.length > 0) {
+      fallbackUserId = existing
+      return existing
+    }
+    const generated = fallbackUserId ?? createRandomUserId()
+    window.localStorage.setItem(USER_ID_STORAGE_KEY, generated)
+    fallbackUserId = generated
+    return generated
+  } catch {
+    // Stable for this page session, but cannot persist without storage.
+    fallbackUserId ??= createRandomUserId()
+    return fallbackUserId
+  }
 }
 
 apiClient.interceptors.request.use((config) => {

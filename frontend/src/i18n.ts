@@ -53,7 +53,11 @@ export const translations = {
 
 export function getInitialLanguage(): AppLanguage {
   if (typeof window === 'undefined') return DEFAULT_LANGUAGE
-  return window.localStorage.getItem('appLanguage') === 'en' ? 'en' : DEFAULT_LANGUAGE
+  try {
+    return window.localStorage.getItem('appLanguage') === 'en' ? 'en' : DEFAULT_LANGUAGE
+  } catch {
+    return DEFAULT_LANGUAGE
+  }
 }
 
 export function getTranslations(language: AppLanguage) {
@@ -62,7 +66,7 @@ export function getTranslations(language: AppLanguage) {
 
 export function emitLanguageChanged(language: AppLanguage) {
   if (typeof window === 'undefined') return
-  window.localStorage.setItem('appLanguage', language)
+  try { window.localStorage.setItem('appLanguage', language) } catch { /* Language still updates in memory. */ }
   window.dispatchEvent(new CustomEvent<AppLanguage>(APP_LANGUAGE_EVENT, { detail: language }))
 }
 
